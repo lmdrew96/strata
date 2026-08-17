@@ -35,11 +35,6 @@ const FLAGSHIP_SCHEMA = {
       description:
         "The dominant category of semantic drift across the eras below: pejoration (meaning got worse), amelioration (got better), narrowing (general -> specific), widening (specific -> general), or other.",
     },
-    drift_summary: {
-      type: "string",
-      description:
-        "ONE short sentence (aim for under 20 words) giving the scannable takeaway of how the meaning changed. Not a paragraph, not multiple sentences.",
-    },
     eras: {
       type: "array",
       items: {
@@ -71,7 +66,7 @@ const FLAGSHIP_SCHEMA = {
           gloss: {
             type: "string",
             description:
-              "A short dictionary-style gloss phrase for what the word meant at this era — a few words, like a dictionary definition (e.g. \"blessed, fortunate\"), NOT a sentence explaining or contextualizing it.",
+              "The single core sense of the word at this era, in 2-4 words (e.g. \"blessed\", \"innocent, pitiable\", \"mounted warrior\"). Not a list of every near-synonym, not a sentence. This gloss gets joined era-to-era into a scannable chain like \"blessed -> innocent -> foolish\", so it must stay that short and pick the one essential meaning.",
           },
           needs_verification: {
             type: "boolean",
@@ -92,13 +87,12 @@ const FLAGSHIP_SCHEMA = {
       },
     },
   },
-  required: ["drift_type", "drift_summary", "eras"],
+  required: ["drift_type", "eras"],
   additionalProperties: false,
 } as const;
 
 type FlagshipDraftResponse = {
   drift_type: DriftType;
-  drift_summary: string;
   eras: {
     era: Era;
     form: string;
@@ -123,11 +117,11 @@ For each of four historical stages of English — Old English (~900), Middle Eng
 - The word's attested form (spelling) at that stage
 - Reconstructed or attested IPA pronunciation
 - For Old English, Middle English, and Early Modern English: a real attested quote using the word at that stage, in its original spelling, with a citation (author, work, approximate date)
-- A short dictionary-style gloss (a few words, not a sentence) for what the word meant at that stage
+- The single core sense of the word at that stage, in 2-4 words (e.g. "blessed", "mounted warrior") — not a sentence, not a list of every near-synonym. These glosses get joined era-to-era into a scannable chain like "blessed -> innocent -> foolish", so precision and brevity both matter: pick the one essential meaning, not an elaboration of it.
 
 The modern-English stage does not need a quote — an everyday word's current usage doesn't have a single notable citation the way an archaic form does. Leave quote and quote_citation empty for the modern stage unless a specific, real, well-known citation is genuinely worth including. Never invent an illustrative example sentence and present it as a quote.
 
-Then classify the overall semantic drift with a single drift_type tag, and write drift_summary as ONE short sentence — the scannable takeaway, not a paragraph.
+Then classify the overall semantic drift with a single drift_type tag.
 
 Only include a stage if the word (or a clear ancestor form) is genuinely attested at that stage — if Old English has no attested ancestor, you may omit it, but Modern and at least two earlier stages should normally be present for a flagship word.
 
@@ -164,14 +158,12 @@ Be honest about your confidence: set needs_verification to true for any quote or
       headword,
       status: "draft",
       driftType: parsed.drift_type,
-      driftSummary: parsed.drift_summary,
     })
     .onConflictDoUpdate({
       target: flagshipWords.headword,
       set: {
         status: "draft",
         driftType: parsed.drift_type,
-        driftSummary: parsed.drift_summary,
         updatedAt: new Date(),
       },
     })

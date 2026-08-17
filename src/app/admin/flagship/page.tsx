@@ -19,7 +19,6 @@ type FlagshipWord = {
   headword: string;
   status: "pending" | "draft" | "approved" | "rejected";
   driftType: "pejoration" | "amelioration" | "narrowing" | "widening" | "other" | null;
-  driftSummary: string | null;
   eras: FlagshipEra[];
 };
 
@@ -114,14 +113,14 @@ export default function FlagshipAdminPage() {
               <StatusBadge status={word.status} />
             </div>
 
-            {word.driftSummary && (
+            {word.eras.length > 0 && (
               <p className="mt-2 flex items-baseline gap-2 text-sm text-gray-700">
                 {word.driftType && (
                   <span className="shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-xs font-medium tracking-wide text-gray-500 uppercase">
                     {word.driftType}
                   </span>
                 )}
-                {word.driftSummary}
+                {word.eras.map((e) => e.gloss).join(" → ")}
               </p>
             )}
 

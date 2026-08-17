@@ -154,8 +154,6 @@ export const flagshipWords = pgTable("flagship_words", {
   headword: text("headword").notNull().unique(),
   status: flagshipStatusEnum("status").notNull().default("pending"),
   driftType: driftTypeEnum("drift_type"),
-  // One short sentence, not a paragraph — a scannable takeaway, not prose.
-  driftSummary: text("drift_summary"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
   approvedAt: timestamp("approved_at"),
@@ -173,8 +171,11 @@ export const flagshipEras = pgTable(
     ipa: text("ipa"),
     quote: text("quote"),
     quoteCitation: text("quote_citation"),
-    // A short dictionary-style gloss phrase (e.g. "blessed, fortunate"), not
-    // a sentence explaining itself — see flagship.ts for length guidance.
+    // A single core sense in 2-4 words (e.g. "blessed", "innocent",
+    // "foolish") -- no comma-separated synonym lists, no sentences. Short
+    // enough to join era-to-era into a scannable drift chain in the UI:
+    // "blessed -> innocent -> foolish". See flagship.ts for the full
+    // length/style contract given to the model.
     gloss: text("gloss"),
     // Claude's own flag that a quote/citation should be checked against a
     // real source before publishing — the human-review half of the pipeline.

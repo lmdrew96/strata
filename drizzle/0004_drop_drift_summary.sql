@@ -1,0 +1,1 @@
+ALTER TABLE "flagship_words" DROP COLUMN "drift_summary";

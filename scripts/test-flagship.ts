@@ -24,7 +24,8 @@ async function main() {
       .where(eq(flagshipEras.flagshipWordId, row.id))
       .orderBy(flagshipEras.orderIndex);
 
-    console.log(`Drift: [${row.driftType}] ${row.driftSummary}`);
+    const chain = eras.map((e) => e.gloss).join(" -> ");
+    console.log(`Drift: [${row.driftType}] ${chain}`);
     for (const era of eras) {
       console.log(`\n  [${era.era}] ${era.form} /${era.ipa}/ — ${era.gloss}`);
       console.log(`  quote: "${era.quote}" — ${era.quoteCitation}`);
