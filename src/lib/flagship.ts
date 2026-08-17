@@ -110,7 +110,7 @@ Only include a stage if the word (or a clear ancestor form) is genuinely atteste
 Be honest about your confidence: set needs_verification to true for any quote or citation you are not highly confident is accurate — a human researcher will check it before publication. Never fabricate a citation to appear more authoritative; an honest needs_verification flag is more useful than false confidence.`;
 
   const message = await anthropic.messages.parse({
-    model: "claude-opus-5",
+    model: "claude-sonnet-5",
     max_tokens: 4096,
     output_config: {
       effort: "high",
