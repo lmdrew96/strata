@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useMemo, useState } from "react";
 import type { Era, FlagshipEra } from "../../../db/schema";
 
@@ -26,13 +27,21 @@ const ERA_COLORS: Record<Era, string> = {
   modern: "#fb6734",
 };
 
+type Sibling = {
+  id: number;
+  siblingHeadword: string;
+  sharedAncestor: string;
+  exists: boolean;
+};
+
 type Props = {
   headword: string;
   driftType: string | null;
   eras: FlagshipEra[];
+  siblings: Sibling[];
 };
 
-export function TimelineScrubber({ headword, driftType, eras }: Props) {
+export function TimelineScrubber({ headword, driftType, eras, siblings }: Props) {
   // Default to the modern stop — the word as the reader already knows it —
   // and let scrubbing backward reveal its history, matching the spec's
   // "chain radiates backward through time" framing.
@@ -164,6 +173,48 @@ export function TimelineScrubber({ headword, driftType, eras }: Props) {
           </p>
         )}
       </div>
+
+      {/* Siblings — words that share a root with this one (the spec's
+          "radiate" view: branches off a shared ancestor point). Curated by
+          Claude during generation rather than mechanically inferred — see
+          etymology-graph.ts for why mechanical graph-matching didn't work. */}
+      {siblings.length > 0 && (
+        <div className="mt-8 w-full">
+          <p className="font-data text-xs tracking-[0.2em] text-strata-parchment/50 uppercase">
+            Shares a root with
+          </p>
+          <div className="mt-3 flex flex-wrap gap-3">
+            {siblings.map((sibling) =>
+              sibling.exists ? (
+                <Link
+                  key={sibling.id}
+                  href={`/word/${encodeURIComponent(sibling.siblingHeadword)}`}
+                  className="rounded-md border border-strata-parchment/20 bg-strata-rosewood/20 px-3 py-2 transition-colors hover:border-strata-coral/50 hover:bg-strata-rosewood/30"
+                >
+                  <span className="font-display text-lg text-strata-parchment">
+                    {sibling.siblingHeadword}
+                  </span>
+                  <span className="font-data mt-0.5 block text-[11px] text-strata-parchment/50">
+                    {sibling.sharedAncestor}
+                  </span>
+                </Link>
+              ) : (
+                <div
+                  key={sibling.id}
+                  className="rounded-md border border-dashed border-strata-parchment/15 px-3 py-2"
+                >
+                  <span className="font-display text-lg text-strata-parchment/50">
+                    {sibling.siblingHeadword}
+                  </span>
+                  <span className="font-data mt-0.5 block text-[11px] text-strata-parchment/40">
+                    {sibling.sharedAncestor}
+                  </span>
+                </div>
+              ),
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

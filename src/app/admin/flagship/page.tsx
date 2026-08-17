@@ -16,12 +16,19 @@ type FlagshipEra = {
 
 type DriftType = "pejoration" | "amelioration" | "narrowing" | "widening" | "other";
 
+type FlagshipSibling = {
+  id: number;
+  siblingHeadword: string;
+  sharedAncestor: string;
+};
+
 type FlagshipWord = {
   id: number;
   headword: string;
   status: "pending" | "draft" | "approved" | "rejected";
   driftType: DriftType | null;
   eras: FlagshipEra[];
+  siblings: FlagshipSibling[];
 };
 
 const ERA_LABELS: Record<string, string> = {
@@ -311,6 +318,18 @@ function WordCard({
           </div>
         ))}
       </div>
+
+      {word.siblings.length > 0 && (
+        <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-gray-500">
+          <span className="font-medium tracking-wide text-gray-400 uppercase">Siblings:</span>
+          {word.siblings.map((s) => (
+            <span key={s.id} className="rounded bg-gray-50 px-2 py-1">
+              {s.siblingHeadword}{" "}
+              <span className="text-gray-400">({s.sharedAncestor})</span>
+            </span>
+          ))}
+        </div>
+      )}
 
       {editing ? (
         <div className="mt-4 flex gap-2">

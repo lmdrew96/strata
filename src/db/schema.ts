@@ -87,14 +87,16 @@ export const wordNodes = pgTable(
     gloss: text("gloss"),
     eraNote: text("era_note"),
     source: nodeSourceEnum("source").notNull().default("kaikki"),
-    // The modern English headword this node's chain hangs off of — the cache
-    // key for "has this word already been graphed."
-    rootHeadword: text("root_headword").notNull(),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (table) => [
-    index("word_nodes_root_headword_idx").on(table.rootHeadword),
-    index("word_nodes_headword_idx").on(table.headword),
+    // (headword, language) is the node's identity for graph-sharing: two
+    // words whose chains both pass through, say, Latin "dictiōnārius" must
+    // resolve to the SAME row so the graph actually branches at that point
+    // instead of each word getting its own disconnected copy. A word's full
+    // chain is found by traversal from its English node, not a stored owner
+    // column — that's what lets one ancestor node serve many descendants.
+    index("word_nodes_headword_lang_idx").on(table.headword, table.language),
   ],
 );
 
@@ -125,6 +127,7 @@ export type NewWordNode = typeof wordNodes.$inferInsert;
 export type WordEdge = typeof wordEdges.$inferSelect;
 export type NewWordEdge = typeof wordEdges.$inferInsert;
 export type EdgeType = (typeof edgeTypeEnum.enumValues)[number];
+export type NodeSource = (typeof nodeSourceEnum.enumValues)[number];
 
 // Flagship word curation: Claude-assisted research draft + human review.
 // One flagshipWords row per headword; its four flagshipEras rows carry the
@@ -185,9 +188,33 @@ export const flagshipEras = pgTable(
   (table) => [index("flagship_eras_word_idx").on(table.flagshipWordId)],
 );
 
+// Curated sibling relationships for the "radiate" view — words that share a
+// step in this word's chain (e.g. everything descended from the same Latin
+// root). Named explicitly by Claude during generation rather than inferred
+// by matching raw etymology-graph nodes: mechanical string-matching across
+// independently-extracted ancestor chains turned out not to reliably catch
+// real siblings (e.g. "fantastic" and "fantasy" share a Greek/Latin root but
+// their kaikki-derived ancestor chains use different exact spellings at
+// every level), so this is deliberately editorial, like drift_type.
+export const flagshipSiblings = pgTable(
+  "flagship_siblings",
+  {
+    id: serial("id").primaryKey(),
+    flagshipWordId: integer("flagship_word_id")
+      .notNull()
+      .references(() => flagshipWords.id, { onDelete: "cascade" }),
+    siblingHeadword: text("sibling_headword").notNull(),
+    sharedAncestor: text("shared_ancestor").notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => [index("flagship_siblings_word_idx").on(table.flagshipWordId)],
+);
+
 export type FlagshipWord = typeof flagshipWords.$inferSelect;
 export type NewFlagshipWord = typeof flagshipWords.$inferInsert;
 export type FlagshipEra = typeof flagshipEras.$inferSelect;
 export type NewFlagshipEra = typeof flagshipEras.$inferInsert;
+export type FlagshipSibling = typeof flagshipSiblings.$inferSelect;
+export type NewFlagshipSibling = typeof flagshipSiblings.$inferInsert;
 export type Era = (typeof eraEnum.enumValues)[number];
 export type DriftType = (typeof driftTypeEnum.enumValues)[number];

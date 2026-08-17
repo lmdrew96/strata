@@ -5,7 +5,9 @@ import {
   type DriftType,
   type Era,
   type NewFlagshipEra,
+  type NewFlagshipSibling,
   flagshipEras,
+  flagshipSiblings,
   flagshipWords,
 } from "../db/schema";
 
@@ -87,8 +89,30 @@ const FLAGSHIP_SCHEMA = {
         additionalProperties: false,
       },
     },
+    sibling_words: {
+      type: "array",
+      description:
+        "Other real English words that share a documented root with this word — genuine cognates or common descendants of the same Latin/Greek/PIE ancestor, not just words with a similar meaning. Only include well-documented, genuinely interesting connections (at most 3); leave empty if none stand out. The sibling doesn't need to already exist in Strata.",
+      items: {
+        type: "object",
+        properties: {
+          word: {
+            type: "string",
+            description:
+              "A genuine modern English word — never a foreign-language form, and never a word with a parenthetical caveat appended to it. If the only related term you can think of is a foreign cognate with no real English descendant, omit that connection entirely rather than including the foreign word here.",
+          },
+          shared_ancestor: {
+            type: "string",
+            description:
+              "The shared ancestor term and language, briefly glossed, e.g. \"Latin phantasia (imagination)\".",
+          },
+        },
+        required: ["word", "shared_ancestor"],
+        additionalProperties: false,
+      },
+    },
   },
-  required: ["drift_type", "eras"],
+  required: ["drift_type", "eras", "sibling_words"],
   additionalProperties: false,
 } as const;
 
@@ -103,6 +127,7 @@ type FlagshipDraftResponse = {
     gloss: string;
     needs_verification: boolean;
   }[];
+  sibling_words: { word: string; shared_ancestor: string }[];
 };
 
 /**
@@ -128,6 +153,8 @@ The form field and the quote must never disagree. When a stage has a quote, the 
 The modern-English stage does not need a quote — an everyday word's current usage doesn't have a single notable citation the way an archaic form does. Leave quote and quote_citation empty for the modern stage unless a specific, real, well-known citation is genuinely worth including. Never invent an illustrative example sentence and present it as a quote.
 
 Then classify the overall semantic drift with a single drift_type tag.
+
+Finally, name up to 3 sibling_words: other real English words that share a documented root with this word (genuine cognates or common descendants of the same Latin/Greek/PIE ancestor — not just words with a similar meaning). Only include connections you're genuinely confident are documented; leave the list empty rather than force a weak or speculative match.
 
 Only include a stage if the word (or a clear ancestor form) is genuinely attested at that stage — if Old English has no attested ancestor, you may omit it, but Modern and at least two earlier stages should normally be present for a flagship word.
 
@@ -203,6 +230,20 @@ Be honest about your confidence: set needs_verification to true for any quote or
 
   if (eraRows.length > 0) {
     await db.insert(flagshipEras).values(eraRows);
+  }
+
+  await db.delete(flagshipSiblings).where(eq(flagshipSiblings.flagshipWordId, word.id));
+
+  const siblingRows: NewFlagshipSibling[] = parsed.sibling_words
+    .filter((s) => s.word.trim().length > 0)
+    .map((s) => ({
+      flagshipWordId: word.id,
+      siblingHeadword: s.word.trim().toLowerCase(),
+      sharedAncestor: s.shared_ancestor,
+    }));
+
+  if (siblingRows.length > 0) {
+    await db.insert(flagshipSiblings).values(siblingRows);
   }
 }
 

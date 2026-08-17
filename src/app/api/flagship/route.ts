@@ -1,7 +1,7 @@
 import { desc, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { db } from "../../../db";
-import { flagshipEras, flagshipWords } from "../../../db/schema";
+import { flagshipEras, flagshipSiblings, flagshipWords } from "../../../db/schema";
 import { generateFlagshipDraft } from "../../../lib/flagship";
 
 export async function GET() {
@@ -17,7 +17,11 @@ export async function GET() {
         .from(flagshipEras)
         .where(eq(flagshipEras.flagshipWordId, word.id))
         .orderBy(flagshipEras.orderIndex);
-      return { ...word, eras };
+      const siblings = await db
+        .select()
+        .from(flagshipSiblings)
+        .where(eq(flagshipSiblings.flagshipWordId, word.id));
+      return { ...word, eras, siblings };
     }),
   );
 
