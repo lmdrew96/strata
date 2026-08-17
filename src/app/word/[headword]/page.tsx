@@ -25,10 +25,31 @@ export default async function WordPage({
     .where(eq(flagshipEras.flagshipWordId, word.id))
     .orderBy(flagshipEras.orderIndex);
 
-  const siblings = await db
+  // Siblings aren't symmetric in storage -- each word's list is generated
+  // independently, so A listing B doesn't guarantee B's own generation
+  // happened to list A back. Merge both directions here so the reader sees
+  // the relationship regardless of which side "claimed" it.
+  const ownSiblings = await db
     .select()
     .from(flagshipSiblings)
     .where(eq(flagshipSiblings.flagshipWordId, word.id));
+
+  const reverseSiblings = await db
+    .select({
+      id: flagshipSiblings.id,
+      siblingHeadword: flagshipWords.headword,
+      sharedAncestor: flagshipSiblings.sharedAncestor,
+    })
+    .from(flagshipSiblings)
+    .innerJoin(flagshipWords, eq(flagshipSiblings.flagshipWordId, flagshipWords.id))
+    .where(eq(flagshipSiblings.siblingHeadword, word.headword));
+
+  const seen = new Set<string>();
+  const siblings = [...ownSiblings, ...reverseSiblings].filter((s) => {
+    if (seen.has(s.siblingHeadword)) return false;
+    seen.add(s.siblingHeadword);
+    return true;
+  });
 
   const existingSiblingWords =
     siblings.length > 0
