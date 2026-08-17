@@ -40,15 +40,18 @@ const FLAGSHIP_SCHEMA = {
           },
           ipa: {
             type: "string",
-            description: "Reconstructed or attested IPA pronunciation at this era.",
+            description:
+              "Reconstructed or attested IPA pronunciation at this era, as bare phonemes with no enclosing slashes or brackets (e.g. \"kniçt\", not \"/kniçt/\").",
           },
           quote: {
             type: "string",
-            description: "A real attested quote using this word at this era, in its original spelling.",
+            description:
+              "A real attested quote using this word at this era, in its original spelling. For the modern era, leave this as an empty string unless there is a genuinely specific, real, well-known citation worth including — never invent an illustrative example sentence and present it as a quote.",
           },
           quote_citation: {
             type: "string",
-            description: "Source of the quote (author, work, approximate date).",
+            description:
+              "Source of the quote (author, work, approximate date). Leave as an empty string whenever quote is empty.",
           },
           meaning_note: {
             type: "string",
@@ -57,7 +60,7 @@ const FLAGSHIP_SCHEMA = {
           needs_verification: {
             type: "boolean",
             description:
-              "True unless you have high confidence this exact quote and citation are accurate and verifiable against a real historical source. Default to true when uncertain.",
+              "True unless you have high confidence this exact quote and citation are accurate and verifiable against a real historical source. Default to true when uncertain. Irrelevant when quote is empty.",
           },
         },
         required: [
@@ -100,8 +103,10 @@ export async function generateFlagshipDraft(headword: string): Promise<void> {
   const system = `You are researching the word "${headword}" for Strata, a deep-dive English etymology explorer. For each of four historical stages of English — Old English (~900), Middle English (~1400), Early Modern English (~1600), and Modern English (today) — provide:
 - The word's attested form (spelling) at that stage
 - Reconstructed or attested IPA pronunciation
-- A real attested quote using the word at that stage, in its original spelling, with a citation (author, work, approximate date)
+- For Old English, Middle English, and Early Modern English: a real attested quote using the word at that stage, in its original spelling, with a citation (author, work, approximate date)
 - A short note on what the word meant at that stage, especially where it differs from the modern meaning
+
+The modern-English stage does not need a quote — an everyday word's current usage doesn't have a single notable citation the way an archaic form does. Leave quote and quote_citation empty for the modern stage unless a specific, real, well-known citation is genuinely worth including. Never invent an illustrative example sentence and present it as a quote.
 
 Then write a short narrative describing the overall semantic drift — how the meaning changed across these stages.
 
@@ -111,7 +116,7 @@ Be honest about your confidence: set needs_verification to true for any quote or
 
   const message = await anthropic.messages.parse({
     model: "claude-sonnet-5",
-    max_tokens: 4096,
+    max_tokens: 8192,
     output_config: {
       effort: "high",
       format: { type: "json_schema", schema: FLAGSHIP_SCHEMA },
@@ -130,42 +135,49 @@ Be honest about your confidence: set needs_verification to true for any quote or
     throw new Error(`No parsed output in response for "${headword}"`);
   }
 
-  await db.transaction(async (tx) => {
-    const [word] = await tx
-      .insert(flagshipWords)
-      .values({
-        headword,
+  // The neon-http driver has no transaction support (each query is its own
+  // HTTP request), so these run sequentially rather than atomically. Worst
+  // case on a crash mid-sequence: a word with stale or missing eras, which a
+  // re-run of this function fixes.
+  const [word] = await db
+    .insert(flagshipWords)
+    .values({
+      headword,
+      status: "draft",
+      semanticDriftNarrative: parsed.semantic_drift_narrative,
+    })
+    .onConflictDoUpdate({
+      target: flagshipWords.headword,
+      set: {
         status: "draft",
         semanticDriftNarrative: parsed.semantic_drift_narrative,
-      })
-      .onConflictDoUpdate({
-        target: flagshipWords.headword,
-        set: {
-          status: "draft",
-          semanticDriftNarrative: parsed.semantic_drift_narrative,
-          updatedAt: new Date(),
-        },
-      })
-      .returning();
+        updatedAt: new Date(),
+      },
+    })
+    .returning();
 
-    await tx.delete(flagshipEras).where(eq(flagshipEras.flagshipWordId, word.id));
+  await db.delete(flagshipEras).where(eq(flagshipEras.flagshipWordId, word.id));
 
-    const eraRows: NewFlagshipEra[] = parsed.eras.map((e, i) => ({
+  const eraRows: NewFlagshipEra[] = parsed.eras.map((e, i) => {
+    const hasQuote = e.quote.trim().length > 0;
+    return {
       flagshipWordId: word.id,
       era: e.era,
       form: e.form,
       ipa: e.ipa,
-      quote: e.quote,
-      quoteCitation: e.quote_citation,
+      quote: hasQuote ? e.quote : null,
+      quoteCitation: hasQuote ? e.quote_citation : null,
       meaningNote: e.meaning_note,
-      needsVerification: e.needs_verification,
+      // Don't trust the model's self-report once there's no quote to verify —
+      // seen it mark an invented, uncited "quote" as needs_verification=false.
+      needsVerification: hasQuote ? e.needs_verification : false,
       orderIndex: i,
-    }));
-
-    if (eraRows.length > 0) {
-      await tx.insert(flagshipEras).values(eraRows);
-    }
+    };
   });
+
+  if (eraRows.length > 0) {
+    await db.insert(flagshipEras).values(eraRows);
+  }
 }
 
 export async function approveFlagshipWord(id: number): Promise<void> {
