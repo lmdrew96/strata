@@ -124,20 +124,42 @@ export default function FlagshipAdminPage() {
               </p>
             )}
 
-            {/*
-              TODO(Nae): era cards row.
-              word.eras is ordered old -> modern (4 items typically). Render
-              each as a small card: ERA_LABELS[era.era], era.form, era.ipa,
-              era.quote + era.quoteCitation, era.gloss, and a small
-              "needs verification" tag when era.needsVerification is true.
+            <div className="mt-4 flex flex-wrap gap-3">
+              {word.eras.map((era) => (
+                <div
+                  key={era.id}
+                  className="min-w-[220px] flex-1 rounded-md border border-gray-100 bg-gray-50 p-3"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-medium tracking-wide text-gray-400 uppercase">
+                      {ERA_LABELS[era.era] ?? era.era}
+                    </span>
+                    {era.needsVerification && (
+                      <span className="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-700">
+                        needs verification
+                      </span>
+                    )}
+                  </div>
 
-              Hint: this is a flex row that should wrap on narrow screens
-              rather than overflow or squish — each card roughly equal width,
-              a consistent gap between them. flex-wrap + a min-width per card
-              is the shape to reach for.
-            */}
-            <div className="mt-4 text-sm text-gray-400 italic">
-              [era cards go here]
+                  <p className="mt-1 text-sm font-medium text-gray-900">
+                    {era.form}
+                    {era.ipa && (
+                      <span className="ml-1.5 font-normal text-gray-500">/{era.ipa}/</span>
+                    )}
+                  </p>
+
+                  {era.gloss && <p className="mt-1 text-sm text-gray-700">{era.gloss}</p>}
+
+                  {era.quote && (
+                    <p className="mt-2 text-xs text-gray-500 italic">
+                      "{era.quote}"
+                      {era.quoteCitation && (
+                        <span className="not-italic"> — {era.quoteCitation}</span>
+                      )}
+                    </p>
+                  )}
+                </div>
+              ))}
             </div>
 
             {word.status === "draft" && (
