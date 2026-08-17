@@ -111,7 +111,10 @@ type FlagshipDraftResponse = {
  * a verified source — needs_verification flags what a human reviewer should
  * check before approving (see flagshipWords.status: pending -> draft -> approved).
  */
-export async function generateFlagshipDraft(headword: string): Promise<void> {
+export async function generateFlagshipDraft(
+  headword: string,
+  extraGuidance?: string,
+): Promise<void> {
   const system = `You are researching the word "${headword}" for Strata, a deep-dive English etymology explorer. Strata's content is browsable metadata, not prose essays — every field should be scannable at a glance, not a paragraph explaining itself.
 
 For each of four historical stages of English — Old English (~900), Middle English (~1400), Early Modern English (~1600), and Modern English (today) — provide:
@@ -141,7 +144,9 @@ Be honest about your confidence: set needs_verification to true for any quote or
     messages: [
       {
         role: "user",
-        content: `Research "${headword}" for Strata's flagship treatment.`,
+        content: extraGuidance
+          ? `Research "${headword}" for Strata's flagship treatment. ${extraGuidance}`
+          : `Research "${headword}" for Strata's flagship treatment.`,
       },
     ],
   });
