@@ -8,6 +8,13 @@
       "when": 1786980726940,
       "tag": "0000_violet_wild_child",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1786981326444,
+      "tag": "0001_blushing_red_wolf",
+      "breakpoints": true
     }
   ]
 }

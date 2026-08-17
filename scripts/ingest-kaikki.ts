@@ -31,15 +31,56 @@ type RawForm = {
   tags?: string[];
 };
 
+type RawEtymologyTemplate = {
+  name?: string;
+  args?: Record<string, string>;
+  expansion?: string;
+};
+
 type RawEntry = {
   word?: string;
   pos?: string;
   lang_code?: string;
   etymology_text?: string;
+  etymology_templates?: RawEtymologyTemplate[];
   senses?: RawSense[];
   sounds?: RawSound[];
   forms?: RawForm[];
 };
+
+// Maps Wiktionary's etymology template names to Strata's graph edge types.
+// inh = inherited (direct line of descent), bor = borrowed, der = derived,
+// cog/cogn = cognate. See https://github.com/tatuylonen/wiktextract for the
+// full template vocabulary — these four cover the spec's edge taxonomy.
+const RELATION_TEMPLATE_TYPES: Record<string, string> = {
+  inh: "descended_from",
+  bor: "borrowed_from",
+  der: "derived_from",
+  cog: "cognate_of",
+  cogn: "cognate_of",
+};
+
+function extractEtymologyRelations(templates: RawEtymologyTemplate[] | undefined) {
+  return (templates ?? [])
+    .filter((t) => t.name && RELATION_TEMPLATE_TYPES[t.name] && t.args?.["3"])
+    .map((t) => {
+      const term = t.args!["3"];
+      const expansion = t.expansion ?? term;
+      // Human-readable language name, e.g. "Middle English" from expansion
+      // "Middle English dixionare" — kaikki doesn't give us a clean lang-code
+      // table, but expansion spells it out before the term (and sometimes
+      // trails off into a parenthetical gloss after it, which we drop).
+      const label = expansion.includes(term)
+        ? expansion.split(term)[0].trim()
+        : expansion;
+      return {
+        type: RELATION_TEMPLATE_TYPES[t.name as string],
+        langCode: t.args!["2"] ?? "",
+        term,
+        label,
+      };
+    });
+}
 
 function parseArgs(argv: string[]) {
   const args: Record<string, string | boolean> = {};
@@ -98,6 +139,7 @@ function toNewWord(entry: RawEntry): NewWord | null {
     pos: entry.pos,
     langCode: entry.lang_code ?? "en",
     etymologyText: entry.etymology_text ?? null,
+    etymologyRelations: extractEtymologyRelations(entry.etymology_templates),
     senses,
     sounds,
     forms,
