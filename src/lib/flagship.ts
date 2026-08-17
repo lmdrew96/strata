@@ -46,7 +46,8 @@ const FLAGSHIP_SCHEMA = {
           },
           form: {
             type: "string",
-            description: "The word's attested spelling/form at this era.",
+            description:
+              "The word's attested spelling/form at this era. When this era has a quote, form MUST be the exact spelling of the word as it appears in that quote — do not pick a different 'representative' spelling than the one in the quote you're citing. Only choose form independently when there is no quote for this era.",
           },
           ipa: {
             type: "string",
@@ -117,6 +118,8 @@ For each of four historical stages of English — Old English (~900), Middle Eng
 - The word's attested form (spelling) at that stage
 - Reconstructed or attested IPA pronunciation
 - For Old English, Middle English, and Early Modern English: a real attested quote using the word at that stage, in its original spelling, with a citation (author, work, approximate date)
+
+The form field and the quote must never disagree. When a stage has a quote, the form you give for that stage must be the exact spelling used in that quote — not a separately-chosen "typical" spelling. Pick the quote first, then read the form off of it.
 - The single core sense of the word at that stage, in 2-4 words (e.g. "blessed", "mounted warrior") — not a sentence, not a list of every near-synonym. These glosses get joined era-to-era into a scannable chain like "blessed -> innocent -> foolish", so precision and brevity both matter: pick the one essential meaning, not an elaboration of it.
 
 The modern-English stage does not need a quote — an everyday word's current usage doesn't have a single notable citation the way an archaic form does. Leave quote and quote_citation empty for the modern stage unless a specific, real, well-known citation is genuinely worth including. Never invent an illustrative example sentence and present it as a quote.
@@ -173,6 +176,11 @@ Be honest about your confidence: set needs_verification to true for any quote or
 
   const eraRows: NewFlagshipEra[] = parsed.eras.map((e, i) => {
     const hasQuote = e.quote.trim().length > 0;
+    // The model has produced a form that doesn't match the spelling in its
+    // own quote (e.g. form "awfull" for a quote reading "...awefull...").
+    // Prompting alone didn't fully prevent this, so force review whenever
+    // it recurs rather than trusting the two fields to agree.
+    const formMismatch = hasQuote && !e.quote.toLowerCase().includes(e.form.toLowerCase());
     return {
       flagshipWordId: word.id,
       era: e.era,
@@ -183,7 +191,7 @@ Be honest about your confidence: set needs_verification to true for any quote or
       gloss: e.gloss,
       // Don't trust the model's self-report once there's no quote to verify —
       // seen it mark an invented, uncited "quote" as needs_verification=false.
-      needsVerification: hasQuote ? e.needs_verification : false,
+      needsVerification: hasQuote ? e.needs_verification || formMismatch : false,
       orderIndex: i,
     };
   });
