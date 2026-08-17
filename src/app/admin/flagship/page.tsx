@@ -9,6 +9,7 @@ type FlagshipEra = {
   ipa: string | null;
   quote: string | null;
   quoteCitation: string | null;
+  quoteTranslation: string | null;
   gloss: string | null;
   needsVerification: boolean;
   orderIndex: number;
@@ -293,6 +294,12 @@ function WordCard({
                   placeholder="citation"
                   className="w-full rounded border border-gray-200 px-1.5 py-1 text-xs"
                 />
+                <input
+                  value={era.quoteTranslation ?? ""}
+                  onChange={(e) => updateEra(era.id, { quoteTranslation: e.target.value })}
+                  placeholder="modern translation"
+                  className="w-full rounded border border-gray-200 px-1.5 py-1 text-xs text-gray-500"
+                />
               </div>
             ) : (
               <>
@@ -312,6 +319,9 @@ function WordCard({
                       <span className="not-italic"> — {era.quoteCitation}</span>
                     )}
                   </p>
+                )}
+                {era.quoteTranslation && (
+                  <p className="mt-1 text-xs text-gray-400">“{era.quoteTranslation}”</p>
                 )}
               </>
             )}

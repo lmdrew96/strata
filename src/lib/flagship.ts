@@ -66,6 +66,11 @@ const FLAGSHIP_SCHEMA = {
             description:
               "Source of the quote (author, work, approximate date). Leave as an empty string whenever quote is empty.",
           },
+          quote_translation: {
+            type: "string",
+            description:
+              "A modern English rendering of the quote, so a reader who can't parse the original spelling still gets the sentence. Plain contemporary English, not a scholarly gloss. Leave as an empty string whenever quote is empty.",
+          },
           gloss: {
             type: "string",
             description:
@@ -83,6 +88,7 @@ const FLAGSHIP_SCHEMA = {
           "ipa",
           "quote",
           "quote_citation",
+          "quote_translation",
           "gloss",
           "needs_verification",
         ],
@@ -124,6 +130,7 @@ type FlagshipDraftResponse = {
     ipa: string;
     quote: string;
     quote_citation: string;
+    quote_translation: string;
     gloss: string;
     needs_verification: boolean;
   }[];
@@ -145,7 +152,7 @@ export async function generateFlagshipDraft(
 For each of four historical stages of English — Old English (~900), Middle English (~1400), Early Modern English (~1600), and Modern English (today) — provide:
 - The word's attested form (spelling) at that stage
 - Reconstructed or attested IPA pronunciation
-- For Old English, Middle English, and Early Modern English: a real attested quote using the word at that stage, in its original spelling, with a citation (author, work, approximate date)
+- For Old English, Middle English, and Early Modern English: a real attested quote using the word at that stage, in its original spelling, with a citation (author, work, approximate date), plus a plain modern English rendering of that same quote so a reader who can't parse the original spelling still gets the sentence
 
 The form field and the quote must never disagree. When a stage has a quote, the form you give for that stage must be the exact spelling used in that quote — not a separately-chosen "typical" spelling. Pick the quote first, then read the form off of it.
 - The single core sense of the word at that stage, in 2-4 words (e.g. "blessed", "mounted warrior") — not a sentence, not a list of every near-synonym. These glosses get joined era-to-era into a scannable chain like "blessed -> innocent -> foolish", so precision and brevity both matter: pick the one essential meaning, not an elaboration of it.
@@ -220,6 +227,7 @@ Be honest about your confidence: set needs_verification to true for any quote or
       ipa: e.ipa,
       quote: hasQuote ? e.quote : null,
       quoteCitation: hasQuote ? e.quote_citation : null,
+      quoteTranslation: hasQuote ? e.quote_translation : null,
       gloss: e.gloss,
       // Don't trust the model's self-report once there's no quote to verify —
       // seen it mark an invented, uncited "quote" as needs_verification=false.

@@ -26,6 +26,7 @@ export async function POST(
         ipa: era.ipa || null,
         quote: era.quote || null,
         quoteCitation: era.quoteCitation || null,
+        quoteTranslation: era.quoteTranslation || null,
         gloss: era.gloss || null,
         needsVerification: era.needsVerification,
       })

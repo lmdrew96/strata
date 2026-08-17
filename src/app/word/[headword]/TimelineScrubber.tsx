@@ -167,6 +167,11 @@ export function TimelineScrubber({ headword, driftType, eras, siblings }: Props)
             )}
           </p>
         )}
+        {active.quote && active.quoteTranslation && (
+          <p className="font-data mt-2 text-sm text-strata-parchment/60">
+            &ldquo;{active.quoteTranslation}&rdquo;
+          </p>
+        )}
         {!active.quote && !active.gloss && (
           <p className="font-data text-sm text-strata-parchment/40">
             No record for this era yet.

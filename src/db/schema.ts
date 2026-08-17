@@ -174,6 +174,9 @@ export const flagshipEras = pgTable(
     ipa: text("ipa"),
     quote: text("quote"),
     quoteCitation: text("quote_citation"),
+    // Modern English rendering of `quote`, for readers who can't parse the
+    // original-spelling OE/ME/EME text unaided. Null whenever quote is null.
+    quoteTranslation: text("quote_translation"),
     // A single core sense in 2-4 words (e.g. "blessed", "innocent",
     // "foolish") -- no comma-separated synonym lists, no sentences. Short
     // enough to join era-to-era into a scannable drift chain in the UI:
