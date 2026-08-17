@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { eq } from "drizzle-orm";
 import { db } from "../db";
 import {
+  type DriftType,
   type Era,
   type NewFlagshipEra,
   flagshipEras,
@@ -17,13 +18,27 @@ const ERAS: Era[] = [
   "modern",
 ];
 
+const DRIFT_TYPES: DriftType[] = [
+  "pejoration",
+  "amelioration",
+  "narrowing",
+  "widening",
+  "other",
+];
+
 const FLAGSHIP_SCHEMA = {
   type: "object",
   properties: {
-    semantic_drift_narrative: {
+    drift_type: {
+      type: "string",
+      enum: DRIFT_TYPES,
+      description:
+        "The dominant category of semantic drift across the eras below: pejoration (meaning got worse), amelioration (got better), narrowing (general -> specific), widening (specific -> general), or other.",
+    },
+    drift_summary: {
       type: "string",
       description:
-        "A short narrative (2-4 sentences) describing how this word's meaning drifted across the eras below.",
+        "ONE short sentence (aim for under 20 words) giving the scannable takeaway of how the meaning changed. Not a paragraph, not multiple sentences.",
     },
     eras: {
       type: "array",
@@ -53,9 +68,10 @@ const FLAGSHIP_SCHEMA = {
             description:
               "Source of the quote (author, work, approximate date). Leave as an empty string whenever quote is empty.",
           },
-          meaning_note: {
+          gloss: {
             type: "string",
-            description: "One or two sentences on what the word meant at this era vs. its modern meaning.",
+            description:
+              "A short dictionary-style gloss phrase for what the word meant at this era — a few words, like a dictionary definition (e.g. \"blessed, fortunate\"), NOT a sentence explaining or contextualizing it.",
           },
           needs_verification: {
             type: "boolean",
@@ -69,26 +85,27 @@ const FLAGSHIP_SCHEMA = {
           "ipa",
           "quote",
           "quote_citation",
-          "meaning_note",
+          "gloss",
           "needs_verification",
         ],
         additionalProperties: false,
       },
     },
   },
-  required: ["semantic_drift_narrative", "eras"],
+  required: ["drift_type", "drift_summary", "eras"],
   additionalProperties: false,
 } as const;
 
 type FlagshipDraftResponse = {
-  semantic_drift_narrative: string;
+  drift_type: DriftType;
+  drift_summary: string;
   eras: {
     era: Era;
     form: string;
     ipa: string;
     quote: string;
     quote_citation: string;
-    meaning_note: string;
+    gloss: string;
     needs_verification: boolean;
   }[];
 };
@@ -100,15 +117,17 @@ type FlagshipDraftResponse = {
  * check before approving (see flagshipWords.status: pending -> draft -> approved).
  */
 export async function generateFlagshipDraft(headword: string): Promise<void> {
-  const system = `You are researching the word "${headword}" for Strata, a deep-dive English etymology explorer. For each of four historical stages of English — Old English (~900), Middle English (~1400), Early Modern English (~1600), and Modern English (today) — provide:
+  const system = `You are researching the word "${headword}" for Strata, a deep-dive English etymology explorer. Strata's content is browsable metadata, not prose essays — every field should be scannable at a glance, not a paragraph explaining itself.
+
+For each of four historical stages of English — Old English (~900), Middle English (~1400), Early Modern English (~1600), and Modern English (today) — provide:
 - The word's attested form (spelling) at that stage
 - Reconstructed or attested IPA pronunciation
 - For Old English, Middle English, and Early Modern English: a real attested quote using the word at that stage, in its original spelling, with a citation (author, work, approximate date)
-- A short note on what the word meant at that stage, especially where it differs from the modern meaning
+- A short dictionary-style gloss (a few words, not a sentence) for what the word meant at that stage
 
 The modern-English stage does not need a quote — an everyday word's current usage doesn't have a single notable citation the way an archaic form does. Leave quote and quote_citation empty for the modern stage unless a specific, real, well-known citation is genuinely worth including. Never invent an illustrative example sentence and present it as a quote.
 
-Then write a short narrative describing the overall semantic drift — how the meaning changed across these stages.
+Then classify the overall semantic drift with a single drift_type tag, and write drift_summary as ONE short sentence — the scannable takeaway, not a paragraph.
 
 Only include a stage if the word (or a clear ancestor form) is genuinely attested at that stage — if Old English has no attested ancestor, you may omit it, but Modern and at least two earlier stages should normally be present for a flagship word.
 
@@ -144,13 +163,15 @@ Be honest about your confidence: set needs_verification to true for any quote or
     .values({
       headword,
       status: "draft",
-      semanticDriftNarrative: parsed.semantic_drift_narrative,
+      driftType: parsed.drift_type,
+      driftSummary: parsed.drift_summary,
     })
     .onConflictDoUpdate({
       target: flagshipWords.headword,
       set: {
         status: "draft",
-        semanticDriftNarrative: parsed.semantic_drift_narrative,
+        driftType: parsed.drift_type,
+        driftSummary: parsed.drift_summary,
         updatedAt: new Date(),
       },
     })
@@ -167,7 +188,7 @@ Be honest about your confidence: set needs_verification to true for any quote or
       ipa: e.ipa,
       quote: hasQuote ? e.quote : null,
       quoteCitation: hasQuote ? e.quote_citation : null,
-      meaningNote: e.meaning_note,
+      gloss: e.gloss,
       // Don't trust the model's self-report once there's no quote to verify —
       // seen it mark an invented, uncited "quote" as needs_verification=false.
       needsVerification: hasQuote ? e.needs_verification : false,

@@ -141,12 +141,21 @@ export const eraEnum = pgEnum("era", [
   "early_modern_english",
   "modern",
 ]);
+export const driftTypeEnum = pgEnum("drift_type", [
+  "pejoration",
+  "amelioration",
+  "narrowing",
+  "widening",
+  "other",
+]);
 
 export const flagshipWords = pgTable("flagship_words", {
   id: serial("id").primaryKey(),
   headword: text("headword").notNull().unique(),
   status: flagshipStatusEnum("status").notNull().default("pending"),
-  semanticDriftNarrative: text("semantic_drift_narrative"),
+  driftType: driftTypeEnum("drift_type"),
+  // One short sentence, not a paragraph — a scannable takeaway, not prose.
+  driftSummary: text("drift_summary"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
   approvedAt: timestamp("approved_at"),
@@ -164,7 +173,9 @@ export const flagshipEras = pgTable(
     ipa: text("ipa"),
     quote: text("quote"),
     quoteCitation: text("quote_citation"),
-    meaningNote: text("meaning_note"),
+    // A short dictionary-style gloss phrase (e.g. "blessed, fortunate"), not
+    // a sentence explaining itself — see flagship.ts for length guidance.
+    gloss: text("gloss"),
     // Claude's own flag that a quote/citation should be checked against a
     // real source before publishing — the human-review half of the pipeline.
     needsVerification: boolean("needs_verification").notNull().default(true),
@@ -178,3 +189,4 @@ export type NewFlagshipWord = typeof flagshipWords.$inferInsert;
 export type FlagshipEra = typeof flagshipEras.$inferSelect;
 export type NewFlagshipEra = typeof flagshipEras.$inferInsert;
 export type Era = (typeof eraEnum.enumValues)[number];
+export type DriftType = (typeof driftTypeEnum.enumValues)[number];

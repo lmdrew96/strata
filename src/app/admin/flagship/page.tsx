@@ -9,7 +9,7 @@ type FlagshipEra = {
   ipa: string | null;
   quote: string | null;
   quoteCitation: string | null;
-  meaningNote: string | null;
+  gloss: string | null;
   needsVerification: boolean;
   orderIndex: number;
 };
@@ -18,7 +18,8 @@ type FlagshipWord = {
   id: number;
   headword: string;
   status: "pending" | "draft" | "approved" | "rejected";
-  semanticDriftNarrative: string | null;
+  driftType: "pejoration" | "amelioration" | "narrowing" | "widening" | "other" | null;
+  driftSummary: string | null;
   eras: FlagshipEra[];
 };
 
@@ -113,9 +114,14 @@ export default function FlagshipAdminPage() {
               <StatusBadge status={word.status} />
             </div>
 
-            {word.semanticDriftNarrative && (
-              <p className="mt-2 text-sm text-gray-700">
-                {word.semanticDriftNarrative}
+            {word.driftSummary && (
+              <p className="mt-2 flex items-baseline gap-2 text-sm text-gray-700">
+                {word.driftType && (
+                  <span className="shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-xs font-medium tracking-wide text-gray-500 uppercase">
+                    {word.driftType}
+                  </span>
+                )}
+                {word.driftSummary}
               </p>
             )}
 
@@ -123,7 +129,7 @@ export default function FlagshipAdminPage() {
               TODO(Nae): era cards row.
               word.eras is ordered old -> modern (4 items typically). Render
               each as a small card: ERA_LABELS[era.era], era.form, era.ipa,
-              era.quote + era.quoteCitation, era.meaningNote, and a small
+              era.quote + era.quoteCitation, era.gloss, and a small
               "needs verification" tag when era.needsVerification is true.
 
               Hint: this is a flex row that should wrap on narrow screens
