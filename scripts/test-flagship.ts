@@ -10,9 +10,19 @@ async function main() {
     process.exit(1);
   }
 
+  const succeeded: string[] = [];
+  const failed: { word: string; error: string }[] = [];
+
   for (const word of words) {
     console.log(`\n=== Generating: ${word} ===`);
-    await generateFlagshipDraft(word);
+    try {
+      await generateFlagshipDraft(word);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`  FAILED: ${message}`);
+      failed.push({ word, error: message });
+      continue;
+    }
 
     const [row] = await db
       .select()
@@ -31,6 +41,14 @@ async function main() {
       console.log(`  quote: "${era.quote}" — ${era.quoteCitation}`);
       console.log(`  needs_verification: ${era.needsVerification}`);
     }
+    succeeded.push(word);
+  }
+
+  console.log(`\n\n=== Summary: ${succeeded.length}/${words.length} succeeded ===`);
+  if (succeeded.length) console.log(`OK: ${succeeded.join(", ")}`);
+  if (failed.length) {
+    console.log(`FAILED:`);
+    for (const f of failed) console.log(`  - ${f.word}: ${f.error}`);
   }
 }
 
