@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  boolean,
   customType,
   index,
   integer,
@@ -124,3 +125,56 @@ export type NewWordNode = typeof wordNodes.$inferInsert;
 export type WordEdge = typeof wordEdges.$inferSelect;
 export type NewWordEdge = typeof wordEdges.$inferInsert;
 export type EdgeType = (typeof edgeTypeEnum.enumValues)[number];
+
+// Flagship word curation: Claude-assisted research draft + human review.
+// One flagshipWords row per headword; its four flagshipEras rows carry the
+// per-era treatment (form, IPA, quote, meaning-then-vs-now).
+export const flagshipStatusEnum = pgEnum("flagship_status", [
+  "pending",
+  "draft",
+  "approved",
+  "rejected",
+]);
+export const eraEnum = pgEnum("era", [
+  "old_english",
+  "middle_english",
+  "early_modern_english",
+  "modern",
+]);
+
+export const flagshipWords = pgTable("flagship_words", {
+  id: serial("id").primaryKey(),
+  headword: text("headword").notNull().unique(),
+  status: flagshipStatusEnum("status").notNull().default("pending"),
+  semanticDriftNarrative: text("semantic_drift_narrative"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  approvedAt: timestamp("approved_at"),
+});
+
+export const flagshipEras = pgTable(
+  "flagship_eras",
+  {
+    id: serial("id").primaryKey(),
+    flagshipWordId: integer("flagship_word_id")
+      .notNull()
+      .references(() => flagshipWords.id, { onDelete: "cascade" }),
+    era: eraEnum("era").notNull(),
+    form: text("form").notNull(),
+    ipa: text("ipa"),
+    quote: text("quote"),
+    quoteCitation: text("quote_citation"),
+    meaningNote: text("meaning_note"),
+    // Claude's own flag that a quote/citation should be checked against a
+    // real source before publishing — the human-review half of the pipeline.
+    needsVerification: boolean("needs_verification").notNull().default(true),
+    orderIndex: integer("order_index").notNull(),
+  },
+  (table) => [index("flagship_eras_word_idx").on(table.flagshipWordId)],
+);
+
+export type FlagshipWord = typeof flagshipWords.$inferSelect;
+export type NewFlagshipWord = typeof flagshipWords.$inferInsert;
+export type FlagshipEra = typeof flagshipEras.$inferSelect;
+export type NewFlagshipEra = typeof flagshipEras.$inferInsert;
+export type Era = (typeof eraEnum.enumValues)[number];
