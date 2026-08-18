@@ -1,4 +1,4 @@
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { notFound } from "next/navigation";
 import { db } from "../../../db";
 import { flagshipEras, flagshipSiblings, flagshipWords } from "../../../db/schema";
@@ -12,10 +12,14 @@ export default async function WordPage({
   const { headword } = await params;
   const normalized = decodeURIComponent(headword).toLowerCase();
 
+  // Draft/pending/rejected words are mid-review, not launch content — only
+  // 'approved' is safe to serve publicly at this URL.
   const [word] = await db
     .select()
     .from(flagshipWords)
-    .where(eq(flagshipWords.headword, normalized));
+    .where(
+      and(eq(flagshipWords.headword, normalized), eq(flagshipWords.status, "approved")),
+    );
 
   if (!word) notFound();
 
@@ -51,15 +55,21 @@ export default async function WordPage({
     return true;
   });
 
+  // Only count a sibling as "exists" if it's approved — otherwise this page
+  // would render a clickable link straight into the 404 this same gate now
+  // produces for anything still in draft/pending/rejected.
   const existingSiblingWords =
     siblings.length > 0
       ? await db
           .select({ headword: flagshipWords.headword })
           .from(flagshipWords)
           .where(
-            inArray(
-              flagshipWords.headword,
-              siblings.map((s) => s.siblingHeadword),
+            and(
+              inArray(
+                flagshipWords.headword,
+                siblings.map((s) => s.siblingHeadword),
+              ),
+              eq(flagshipWords.status, "approved"),
             ),
           )
       : [];

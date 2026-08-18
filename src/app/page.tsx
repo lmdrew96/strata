@@ -1,4 +1,4 @@
-import { asc } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 import { db } from "../db";
 import { flagshipEras, flagshipWords } from "../db/schema";
 import { ERA_LABELS } from "../lib/eras";
@@ -14,7 +14,14 @@ export const dynamic = "force-dynamic";
 const GAME_PAIR_COUNT = 6;
 
 export default async function Home() {
-  const words = await db.select().from(flagshipWords).orderBy(asc(flagshipWords.id));
+  // Same gate as /word/[headword]: Word of the Week links straight into that
+  // page, and the matching game is meant to showcase reviewed content, so
+  // draft/pending/rejected words can't be picked for either.
+  const words = await db
+    .select()
+    .from(flagshipWords)
+    .where(eq(flagshipWords.status, "approved"))
+    .orderBy(asc(flagshipWords.id));
 
   if (words.length === 0) {
     return (
