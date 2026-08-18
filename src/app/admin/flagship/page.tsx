@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Header } from "../../Header";
 
 type FlagshipEra = {
   id: number;
@@ -103,46 +104,55 @@ export default function FlagshipAdminPage() {
   }
 
   return (
-    <main className="mx-auto max-w-4xl p-8">
-      <h1 className="text-2xl font-semibold">Flagship word curation</h1>
-      <p className="mt-1 text-sm text-gray-500">
-        Claude-assisted research drafts, pending human review before publish.
-      </p>
+    <>
+      <Header />
+      <main className="min-h-screen bg-strata-teal">
+        <div className="mx-auto max-w-4xl p-8">
+          <h1 className="font-display text-2xl font-medium text-strata-parchment">
+            Flagship word curation
+          </h1>
+          <p className="font-data mt-1 text-sm text-strata-parchment/50">
+            Claude-assisted research drafts, pending human review before publish.
+          </p>
 
-      <form onSubmit={handleGenerate} className="mt-6 flex gap-2">
-        <input
-          type="text"
-          value={headwordInput}
-          onChange={(e) => setHeadwordInput(e.target.value)}
-          placeholder="Add a headword, e.g. knight"
-          className="flex-1 rounded border border-gray-300 px-3 py-2 text-sm"
-          disabled={generating}
-        />
-        <button
-          type="submit"
-          disabled={generating}
-          className="rounded bg-gray-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-        >
-          {generating ? "Researching…" : "Generate draft"}
-        </button>
-      </form>
-      {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+          <form onSubmit={handleGenerate} className="mt-6 flex gap-2">
+            <input
+              type="text"
+              value={headwordInput}
+              onChange={(e) => setHeadwordInput(e.target.value)}
+              placeholder="Add a headword, e.g. knight"
+              className="font-data flex-1 rounded border border-strata-parchment/20 bg-strata-rosewood/20 px-3 py-2 text-sm text-strata-parchment placeholder:text-strata-parchment/40 focus:border-strata-coral/50 focus:outline-none"
+              disabled={generating}
+            />
+            <button
+              type="submit"
+              disabled={generating}
+              className="rounded bg-strata-coral px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-strata-coral/90 disabled:opacity-50"
+            >
+              {generating ? "Researching…" : "Generate draft"}
+            </button>
+          </form>
+          {error && <p className="mt-2 text-sm text-red-400">{error}</p>}
 
-      <div className="mt-8 space-y-6">
-        {words.map((word) => (
-          <WordCard
-            key={word.id}
-            word={word}
-            onApprove={() => handleApprove(word.id)}
-            onReject={() => handleReject(word.id)}
-            onSaved={loadWords}
-          />
-        ))}
-        {words.length === 0 && (
-          <p className="text-sm text-gray-400">No flagship words yet.</p>
-        )}
-      </div>
-    </main>
+          <div className="mt-8 space-y-6">
+            {words.map((word) => (
+              <WordCard
+                key={word.id}
+                word={word}
+                onApprove={() => handleApprove(word.id)}
+                onReject={() => handleReject(word.id)}
+                onSaved={loadWords}
+              />
+            ))}
+            {words.length === 0 && (
+              <p className="font-data text-sm text-strata-parchment/40">
+                No flagship words yet.
+              </p>
+            )}
+          </div>
+        </div>
+      </main>
+    </>
   );
 }
 
@@ -188,15 +198,17 @@ function WordCard({
   }
 
   return (
-    <div className="rounded-lg border border-gray-200 p-5">
+    <div className="rounded-lg border border-strata-parchment/15 bg-strata-rosewood/20 p-5">
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-medium">{word.headword}</h2>
+        <h2 className="font-display text-lg font-medium text-strata-parchment">
+          {word.headword}
+        </h2>
         <div className="flex items-center gap-2">
           <StatusBadge status={word.status} />
           {!editing && (
             <button
               onClick={startEditing}
-              className="rounded border border-gray-200 px-2 py-1 text-xs font-medium text-gray-500 hover:bg-gray-50"
+              className="font-data rounded border border-strata-parchment/20 px-2 py-1 text-xs font-medium text-strata-parchment/60 transition-colors hover:border-strata-coral/50 hover:text-strata-parchment"
             >
               Edit
             </button>
@@ -208,19 +220,19 @@ function WordCard({
         <select
           value={draftDriftType ?? ""}
           onChange={(e) => setDraftDriftType(e.target.value as DriftType)}
-          className="mt-2 rounded border border-gray-300 px-2 py-1 text-xs uppercase"
+          className="font-data mt-2 rounded border border-strata-parchment/20 bg-strata-rosewood/20 px-2 py-1 text-xs text-strata-parchment uppercase"
         >
           {DRIFT_TYPES.map((t) => (
-            <option key={t} value={t}>
+            <option key={t} value={t} className="bg-strata-rosewood">
               {t}
             </option>
           ))}
         </select>
       ) : (
         word.eras.length > 0 && (
-          <p className="mt-2 flex items-baseline gap-2 text-sm text-gray-700">
+          <p className="font-data mt-2 flex items-baseline gap-2 text-sm text-strata-parchment/70">
             {word.driftType && (
-              <span className="shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-xs font-medium tracking-wide text-gray-500 uppercase">
+              <span className="shrink-0 rounded bg-strata-parchment/10 px-1.5 py-0.5 text-xs font-medium tracking-wide text-strata-parchment/50 uppercase">
                 {word.driftType}
               </span>
             )}
@@ -233,14 +245,14 @@ function WordCard({
         {(editing ? draftEras : word.eras).map((era) => (
           <div
             key={era.id}
-            className="min-w-[220px] flex-1 rounded-md border border-gray-100 bg-gray-50 p-3"
+            className="min-w-[220px] flex-1 rounded-md border border-strata-parchment/10 bg-strata-rosewood/20 p-3"
           >
             <div className="flex items-center justify-between gap-2">
-              <span className="text-xs font-medium tracking-wide text-gray-400 uppercase">
+              <span className="font-data text-xs font-medium tracking-wide text-strata-parchment/40 uppercase">
                 {ERA_LABELS[era.era] ?? era.era}
               </span>
               {editing ? (
-                <label className="flex items-center gap-1 text-xs text-amber-700">
+                <label className="font-data flex items-center gap-1 text-xs text-amber-400">
                   <input
                     type="checkbox"
                     checked={era.needsVerification}
@@ -252,7 +264,7 @@ function WordCard({
                 </label>
               ) : (
                 era.needsVerification && (
-                  <span className="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-700">
+                  <span className="font-data shrink-0 rounded bg-amber-500/20 px-1.5 py-0.5 text-xs font-medium text-amber-300">
                     needs verification
                   </span>
                 )
@@ -266,54 +278,58 @@ function WordCard({
                     value={era.form}
                     onChange={(e) => updateEra(era.id, { form: e.target.value })}
                     placeholder="form"
-                    className="w-1/2 rounded border border-gray-200 px-1.5 py-1 text-sm font-medium"
+                    className="w-1/2 rounded border border-strata-parchment/20 bg-strata-rosewood/20 px-1.5 py-1 text-sm font-medium text-strata-parchment"
                   />
                   <input
                     value={era.ipa ?? ""}
                     onChange={(e) => updateEra(era.id, { ipa: e.target.value })}
                     placeholder="ipa"
-                    className="w-1/2 rounded border border-gray-200 px-1.5 py-1 text-sm text-gray-500"
+                    className="w-1/2 rounded border border-strata-parchment/20 bg-strata-rosewood/20 px-1.5 py-1 text-sm text-strata-parchment/60"
                   />
                 </div>
                 <input
                   value={era.gloss ?? ""}
                   onChange={(e) => updateEra(era.id, { gloss: e.target.value })}
                   placeholder="gloss"
-                  className="w-full rounded border border-gray-200 px-1.5 py-1 text-sm"
+                  className="w-full rounded border border-strata-parchment/20 bg-strata-rosewood/20 px-1.5 py-1 text-sm text-strata-parchment"
                 />
                 <textarea
                   value={era.quote ?? ""}
                   onChange={(e) => updateEra(era.id, { quote: e.target.value })}
                   placeholder="quote"
                   rows={2}
-                  className="w-full rounded border border-gray-200 px-1.5 py-1 text-xs italic"
+                  className="w-full rounded border border-strata-parchment/20 bg-strata-rosewood/20 px-1.5 py-1 text-xs text-strata-parchment italic"
                 />
                 <input
                   value={era.quoteCitation ?? ""}
                   onChange={(e) => updateEra(era.id, { quoteCitation: e.target.value })}
                   placeholder="citation"
-                  className="w-full rounded border border-gray-200 px-1.5 py-1 text-xs"
+                  className="w-full rounded border border-strata-parchment/20 bg-strata-rosewood/20 px-1.5 py-1 text-xs text-strata-parchment"
                 />
                 <input
                   value={era.quoteTranslation ?? ""}
                   onChange={(e) => updateEra(era.id, { quoteTranslation: e.target.value })}
                   placeholder="modern translation"
-                  className="w-full rounded border border-gray-200 px-1.5 py-1 text-xs text-gray-500"
+                  className="w-full rounded border border-strata-parchment/20 bg-strata-rosewood/20 px-1.5 py-1 text-xs text-strata-parchment/60"
                 />
               </div>
             ) : (
               <>
-                <p className="mt-1 text-sm font-medium text-gray-900">
+                <p className="mt-1 text-sm font-medium text-strata-parchment">
                   {era.form}
                   {era.ipa && (
-                    <span className="ml-1.5 font-normal text-gray-500">/{era.ipa}/</span>
+                    <span className="ml-1.5 font-normal text-strata-parchment/50">
+                      /{era.ipa}/
+                    </span>
                   )}
                 </p>
 
-                {era.gloss && <p className="mt-1 text-sm text-gray-700">{era.gloss}</p>}
+                {era.gloss && (
+                  <p className="font-data mt-1 text-sm text-strata-parchment/70">{era.gloss}</p>
+                )}
 
                 {era.quote && (
-                  <p className="mt-2 text-xs text-gray-500 italic">
+                  <p className="font-body-serif mt-2 text-xs text-strata-parchment/60 italic">
                     &ldquo;{era.quote}&rdquo;
                     {era.quoteCitation && (
                       <span className="not-italic"> — {era.quoteCitation}</span>
@@ -321,7 +337,9 @@ function WordCard({
                   </p>
                 )}
                 {era.quoteTranslation && (
-                  <p className="mt-1 text-xs text-gray-400">“{era.quoteTranslation}”</p>
+                  <p className="font-data mt-1 text-xs text-strata-parchment/40">
+                    “{era.quoteTranslation}”
+                  </p>
                 )}
               </>
             )}
@@ -330,12 +348,14 @@ function WordCard({
       </div>
 
       {word.siblings.length > 0 && (
-        <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-gray-500">
-          <span className="font-medium tracking-wide text-gray-400 uppercase">Siblings:</span>
+        <div className="font-data mt-4 flex flex-wrap items-center gap-2 text-xs text-strata-parchment/60">
+          <span className="font-medium tracking-wide text-strata-parchment/40 uppercase">
+            Siblings:
+          </span>
           {word.siblings.map((s) => (
-            <span key={s.id} className="rounded bg-gray-50 px-2 py-1">
+            <span key={s.id} className="rounded bg-strata-parchment/10 px-2 py-1">
               {s.siblingHeadword}{" "}
-              <span className="text-gray-400">({s.sharedAncestor})</span>
+              <span className="text-strata-parchment/40">({s.sharedAncestor})</span>
             </span>
           ))}
         </div>
@@ -346,14 +366,14 @@ function WordCard({
           <button
             onClick={handleSave}
             disabled={saving}
-            className="rounded bg-gray-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+            className="rounded bg-strata-coral px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-strata-coral/90 disabled:opacity-50"
           >
             {saving ? "Saving…" : "Save changes"}
           </button>
           <button
             onClick={() => setEditing(false)}
             disabled={saving}
-            className="rounded border border-gray-200 px-3 py-1.5 text-sm font-medium text-gray-600"
+            className="rounded border border-strata-parchment/20 px-3 py-1.5 text-sm font-medium text-strata-parchment/70"
           >
             Cancel
           </button>
@@ -363,13 +383,13 @@ function WordCard({
           <div className="mt-4 flex gap-2">
             <button
               onClick={onApprove}
-              className="rounded bg-green-600 px-3 py-1.5 text-sm font-medium text-white"
+              className="rounded bg-green-600 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-green-500"
             >
               Approve
             </button>
             <button
               onClick={onReject}
-              className="rounded bg-red-100 px-3 py-1.5 text-sm font-medium text-red-700"
+              className="rounded border border-red-500/40 px-3 py-1.5 text-sm font-medium text-red-300 transition-colors hover:bg-red-500/10"
             >
               Reject
             </button>
@@ -382,13 +402,15 @@ function WordCard({
 
 function StatusBadge({ status }: { status: FlagshipWord["status"] }) {
   const styles: Record<FlagshipWord["status"], string> = {
-    pending: "bg-gray-100 text-gray-600",
-    draft: "bg-amber-100 text-amber-700",
-    approved: "bg-green-100 text-green-700",
-    rejected: "bg-red-100 text-red-700",
+    pending: "bg-strata-parchment/10 text-strata-parchment/60",
+    draft: "bg-amber-500/20 text-amber-300",
+    approved: "bg-green-500/20 text-green-300",
+    rejected: "bg-red-500/20 text-red-300",
   };
   return (
-    <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${styles[status]}`}>
+    <span
+      className={`font-data rounded-full px-2.5 py-0.5 text-xs font-medium ${styles[status]}`}
+    >
       {status}
     </span>
   );
