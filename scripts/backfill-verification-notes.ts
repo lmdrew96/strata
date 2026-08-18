@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { and, eq, isNull } from "drizzle-orm";
 import { db } from "../src/db";
 import { flagshipEras, flagshipWords } from "../src/db/schema";
+import { createAndParse } from "../src/lib/anthropic-resume";
 
 const anthropic = new Anthropic();
 
@@ -35,7 +36,7 @@ async function checkEra(
   quote: string | null,
   quoteCitation: string | null,
 ): Promise<CheckResponse> {
-  const message = await anthropic.messages.parse({
+  const parsed = await createAndParse<CheckResponse>(anthropic, {
     model: "claude-sonnet-5",
     // 3 searches + 4096 tokens turned out too tight -- several eras hit the
     // search cap mid-check and gave up with "ran out of budget" instead of
@@ -57,7 +58,6 @@ async function checkEra(
     ],
   });
 
-  const parsed = message.parsed_output as CheckResponse | null;
   if (!parsed) {
     throw new Error(`No parsed output for "${headword}" (${era})`);
   }

@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { eq } from "drizzle-orm";
 import { db } from "../db";
+import { createAndParse } from "./anthropic-resume";
 import {
   type DriftType,
   type Era,
@@ -176,7 +177,7 @@ Before writing a quote down from memory, use the web_search tool to try to confi
 
 Be honest about your confidence: set needs_verification to true for any quote or citation you are not highly confident is accurate, INCLUDING when you searched and still couldn't confirm it — a human researcher will check it before publication. Never fabricate a citation to appear more authoritative; an honest needs_verification flag is more useful than false confidence. Whenever needs_verification is true, fill verification_note with a one-sentence explanation of the specific doubt (e.g. "citation date is approximate", "recalling this quote from memory, not verified against a primary source", or "searched but couldn't find this quote in an indexed source") — the reviewer relies on this to know what to actually check, so name the doubt, not a generic disclaimer.`;
 
-  const message = await anthropic.messages.parse({
+  const parsed = await createAndParse<FlagshipDraftResponse>(anthropic, {
     model: "claude-sonnet-5",
     // Search results, code-execution traces (search runs under the hood
     // per the tool docs), and thinking blocks all count against this
@@ -207,7 +208,6 @@ Be honest about your confidence: set needs_verification to true for any quote or
     ],
   });
 
-  const parsed = message.parsed_output as FlagshipDraftResponse | null;
   if (!parsed) {
     throw new Error(`No parsed output in response for "${headword}"`);
   }
