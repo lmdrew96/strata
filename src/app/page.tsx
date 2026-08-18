@@ -3,6 +3,7 @@ import { db } from "../db";
 import { flagshipEras, flagshipWords } from "../db/schema";
 import { ERA_LABELS } from "../lib/eras";
 import { pickWeekly, sampleWeekly, shuffleWeekly, weeklySeed } from "../lib/weekly-rotation";
+import { Footer } from "./Footer";
 import { Header } from "./Header";
 import { MatchingGame, type GameCard } from "./MatchingGame";
 import { WordOfTheWeek } from "./WordOfTheWeek";
@@ -35,6 +36,7 @@ export default async function Home() {
             review.
           </p>
         </main>
+        <Footer />
       </>
     );
   }
@@ -100,6 +102,7 @@ export default async function Home() {
 
         {gameCards.length > 0 && <MatchingGame initialCards={gameCards} />}
       </main>
+      <Footer />
     </>
   );
 }

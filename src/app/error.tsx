@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { Footer } from "./Footer";
 import { Header } from "./Header";
 
 // Wraps page.js/loading.js/not-found.js and nested layouts below the root
@@ -34,6 +35,7 @@ export default function Error({
           Try again
         </button>
       </main>
+      <Footer />
     </>
   );
 }

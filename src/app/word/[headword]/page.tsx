@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { cache } from "react";
 import { db } from "../../../db";
 import { flagshipEras, flagshipSiblings, flagshipWords } from "../../../db/schema";
+import { Footer } from "../../Footer";
 import { Header } from "../../Header";
 import { TimelineScrubber } from "./TimelineScrubber";
 
@@ -128,6 +129,7 @@ export default async function WordPage({
           }))}
         />
       </main>
+      <Footer />
     </>
   );
 }

@@ -1,3 +1,4 @@
+import { Footer } from "./Footer";
 import { Header } from "./Header";
 
 // Renders whenever /word/[headword]/page.tsx calls notFound() for a
@@ -15,6 +16,7 @@ export default function NotFound() {
           above, or head back home.
         </p>
       </main>
+      <Footer />
     </>
   );
 }

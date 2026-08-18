@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Header } from "../../Header";
 
 type FlagshipEra = {
@@ -49,10 +50,17 @@ const DRIFT_TYPES: DriftType[] = [
 ];
 
 export default function FlagshipAdminPage() {
+  const router = useRouter();
   const [words, setWords] = useState<FlagshipWord[]>([]);
   const [headwordInput, setHeadwordInput] = useState("");
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  async function handleSignOut() {
+    await fetch("/api/admin-logout", { method: "POST" });
+    router.push("/");
+    router.refresh();
+  }
 
   async function loadWords() {
     const res = await fetch("/api/flagship");
@@ -108,12 +116,22 @@ export default function FlagshipAdminPage() {
       <Header />
       <main className="min-h-screen bg-strata-teal">
         <div className="mx-auto max-w-4xl p-8">
-          <h1 className="font-display text-2xl font-medium text-strata-parchment">
-            Flagship word curation
-          </h1>
-          <p className="font-data mt-1 text-sm text-strata-parchment/50">
-            Claude-assisted research drafts, pending human review before publish.
-          </p>
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h1 className="font-display text-2xl font-medium text-strata-parchment">
+                Flagship word curation
+              </h1>
+              <p className="font-data mt-1 text-sm text-strata-parchment/50">
+                Claude-assisted research drafts, pending human review before publish.
+              </p>
+            </div>
+            <button
+              onClick={handleSignOut}
+              className="font-data shrink-0 rounded border border-strata-parchment/20 px-3 py-1.5 text-xs font-medium text-strata-parchment/60 transition-colors hover:border-strata-coral/50 hover:text-strata-parchment"
+            >
+              Sign out
+            </button>
+          </div>
 
           <form onSubmit={handleGenerate} className="mt-6 flex gap-2">
             <input
