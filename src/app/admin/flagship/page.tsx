@@ -60,6 +60,8 @@ export default function FlagshipAdminPage() {
   const [headwordInput, setHeadwordInput] = useState("");
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<FlagshipWord["status"] | "all">("all");
 
   async function handleSignOut() {
     await fetch("/api/admin-logout", { method: "POST" });
@@ -116,6 +118,14 @@ export default function FlagshipAdminPage() {
     await loadWords();
   }
 
+  const filteredWords = words.filter((w) => {
+    if (statusFilter !== "all" && w.status !== statusFilter) return false;
+    if (searchQuery.trim() && !w.headword.toLowerCase().includes(searchQuery.trim().toLowerCase())) {
+      return false;
+    }
+    return true;
+  });
+
   return (
     <>
       <Header />
@@ -157,8 +167,39 @@ export default function FlagshipAdminPage() {
           </form>
           {error && <p className="mt-2 text-sm text-red-400">{error}</p>}
 
-          <div className="mt-8 space-y-6">
-            {words.map((word) => (
+          <div className="mt-6 flex gap-2">
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search headwords…"
+              className="font-data flex-1 rounded border border-strata-parchment/20 bg-strata-rosewood/20 px-3 py-2 text-sm text-strata-parchment placeholder:text-strata-parchment/40 focus:border-strata-coral/50 focus:outline-none"
+            />
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value as FlagshipWord["status"] | "all")}
+              className="font-data rounded border border-strata-parchment/20 bg-strata-rosewood/20 px-3 py-2 text-sm text-strata-parchment"
+            >
+              <option value="all" className="bg-strata-rosewood">
+                All statuses
+              </option>
+              <option value="pending" className="bg-strata-rosewood">
+                Pending
+              </option>
+              <option value="draft" className="bg-strata-rosewood">
+                Draft
+              </option>
+              <option value="approved" className="bg-strata-rosewood">
+                Approved
+              </option>
+              <option value="rejected" className="bg-strata-rosewood">
+                Rejected
+              </option>
+            </select>
+          </div>
+
+          <div className="mt-6 space-y-6">
+            {filteredWords.map((word) => (
               <WordCard
                 key={word.id}
                 word={word}
@@ -170,6 +211,11 @@ export default function FlagshipAdminPage() {
             {words.length === 0 && (
               <p className="font-data text-sm text-strata-parchment/40">
                 No flagship words yet.
+              </p>
+            )}
+            {words.length > 0 && filteredWords.length === 0 && (
+              <p className="font-data text-sm text-strata-parchment/40">
+                No words match this search/filter.
               </p>
             )}
           </div>
@@ -197,6 +243,13 @@ function WordCard({
   // Newly-added eras aren't in the DB yet, so they get a negative local id
   // (real ids are serial/positive) -- update/route.ts treats id < 0 as "insert".
   const nextTempId = useRef(-1);
+  // Regenerate/translate act on one era at a time -- neither writes to the
+  // DB itself, they just hand back a draft for updateEra to merge in, same
+  // as typing into the fields by hand. Nothing commits until Save.
+  const [busyEra, setBusyEra] = useState<{ id: number; action: "regenerate" | "translate" } | null>(
+    null,
+  );
+  const [actionError, setActionError] = useState<string | null>(null);
 
   function startEditing() {
     setDraftDriftType(word.driftType);
@@ -229,6 +282,51 @@ function WordCard({
 
   function removeEra(id: number) {
     setDraftEras((prev) => prev.filter((e) => e.id !== id));
+  }
+
+  async function handleRegenerateEra(era: FlagshipEra) {
+    setBusyEra({ id: era.id, action: "regenerate" });
+    setActionError(null);
+    try {
+      const res = await fetch(`/api/flagship/${word.id}/regenerate-era`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ era: era.era }),
+      });
+      if (!res.ok) {
+        const body = await res.json();
+        throw new Error(body.error ?? "Regeneration failed");
+      }
+      const draft = await res.json();
+      updateEra(era.id, draft);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Regeneration failed");
+    } finally {
+      setBusyEra(null);
+    }
+  }
+
+  async function handleTranslateQuote(era: FlagshipEra) {
+    if (!era.quote) return;
+    setBusyEra({ id: era.id, action: "translate" });
+    setActionError(null);
+    try {
+      const res = await fetch("/api/flagship/translate-quote", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ quote: era.quote, form: era.form, era: era.era }),
+      });
+      if (!res.ok) {
+        const body = await res.json();
+        throw new Error(body.error ?? "Translation failed");
+      }
+      const { translation } = await res.json();
+      updateEra(era.id, { quoteTranslation: translation });
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Translation failed");
+    } finally {
+      setBusyEra(null);
+    }
   }
 
   const missingEras = ERAS.filter((k) => !draftEras.some((e) => e.era === k));
@@ -319,8 +417,19 @@ function WordCard({
                   </label>
                   <button
                     type="button"
+                    onClick={() => handleRegenerateEra(era)}
+                    disabled={busyEra !== null}
+                    className="font-data rounded border border-strata-parchment/20 px-1.5 py-0.5 text-xs text-strata-parchment/60 transition-colors hover:border-strata-coral/50 hover:text-strata-parchment disabled:opacity-50"
+                  >
+                    {busyEra?.id === era.id && busyEra.action === "regenerate"
+                      ? "Researching…"
+                      : "Regenerate"}
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => removeEra(era.id)}
-                    className="font-data rounded border border-red-500/30 px-1.5 py-0.5 text-xs text-red-300 transition-colors hover:bg-red-500/10"
+                    disabled={busyEra !== null}
+                    className="font-data rounded border border-red-500/30 px-1.5 py-0.5 text-xs text-red-300 transition-colors hover:bg-red-500/10 disabled:opacity-50"
                   >
                     Remove
                   </button>
@@ -384,12 +493,22 @@ function WordCard({
                   placeholder="citation"
                   className="w-full rounded border border-strata-parchment/20 bg-strata-rosewood/20 px-1.5 py-1 text-xs text-strata-parchment"
                 />
-                <input
-                  value={era.quoteTranslation ?? ""}
-                  onChange={(e) => updateEra(era.id, { quoteTranslation: e.target.value })}
-                  placeholder="modern translation"
-                  className="w-full rounded border border-strata-parchment/20 bg-strata-rosewood/20 px-1.5 py-1 text-xs text-strata-parchment/60"
-                />
+                <div className="flex gap-1">
+                  <input
+                    value={era.quoteTranslation ?? ""}
+                    onChange={(e) => updateEra(era.id, { quoteTranslation: e.target.value })}
+                    placeholder="modern translation"
+                    className="flex-1 rounded border border-strata-parchment/20 bg-strata-rosewood/20 px-1.5 py-1 text-xs text-strata-parchment/60"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => handleTranslateQuote(era)}
+                    disabled={!era.quote || busyEra !== null}
+                    className="font-data shrink-0 rounded border border-strata-parchment/20 px-1.5 py-1 text-xs text-strata-parchment/60 transition-colors hover:border-strata-coral/50 hover:text-strata-parchment disabled:opacity-50"
+                  >
+                    {busyEra?.id === era.id && busyEra.action === "translate" ? "…" : "Translate"}
+                  </button>
+                </div>
               </div>
             ) : (
               <>
@@ -424,6 +543,10 @@ function WordCard({
           </div>
         ))}
       </div>
+
+      {editing && actionError && (
+        <p className="font-data mt-3 text-xs text-red-400">{actionError}</p>
+      )}
 
       {editing && missingEras.length > 0 && (
         <div className="mt-3 flex flex-wrap gap-2">
