@@ -177,6 +177,13 @@ export const flagshipEras = pgTable(
     // Modern English rendering of `quote`, for readers who can't parse the
     // original-spelling OE/ME/EME text unaided. Null whenever quote is null.
     quoteTranslation: text("quote_translation"),
+    // Path (under /public) to a pre-generated pronunciation clip for this
+    // era, e.g. "/audio/pronunciation/12-old_english.wav". Null for the
+    // modern era (spoken client-side via the browser's TTS instead — see
+    // TimelineScrubber) and for any era whose IPA couldn't be mapped to
+    // eSpeak-NG's phoneme set. Generated offline by
+    // scripts/generate-pronunciation-audio.ts, not at request time.
+    audioUrl: text("audio_url"),
     // A single core sense in 2-4 words (e.g. "blessed", "innocent",
     // "foolish") -- no comma-separated synonym lists, no sentences. Short
     // enough to join era-to-era into a scannable drift chain in the UI:

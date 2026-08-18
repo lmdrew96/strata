@@ -57,6 +57,13 @@
       "when": 1787008374947,
       "tag": "0007_broad_firelord",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1787012577487,
+      "tag": "0008_clever_scorpion",
+      "breakpoints": true
     }
   ]
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { FlagshipEra } from "../../../db/schema";
 import { ERA_COLORS, ERA_DATES, ERA_LABELS } from "../../../lib/eras";
 
@@ -75,7 +75,10 @@ export function TimelineScrubber({ headword, driftType, eras, siblings }: Props)
         </h1>
 
         {active.ipa && (
-          <p className="font-data mt-2 text-sm text-strata-parchment/60">/{active.ipa}/</p>
+          <p className="font-data mt-2 flex items-center gap-2 text-sm text-strata-parchment/60">
+            /{active.ipa}/
+            <PronunciationButton era={active} accent={accent} />
+          </p>
         )}
 
         {/* Always-visible era readout — the per-dot labels below hide on
@@ -199,5 +202,77 @@ export function TimelineScrubber({ headword, driftType, eras, siblings }: Props)
         </div>
       )}
     </div>
+  );
+}
+
+// Old/Middle/Early Modern English eras play a pre-generated eSpeak-NG clip
+// synthesized from the era's reconstructed IPA (see
+// scripts/generate-pronunciation-audio.ts) — deliberately synthetic-sounding,
+// per the spec's "honest signal of reconstruction, not a recording" framing.
+// Modern instead uses the browser's own speech synthesis on the word's
+// current spelling, so the jump in voice quality between eras tells its own
+// story. No button renders for a reconstructed era with no generated clip
+// (e.g. its IPA used a symbol eSpeak has no equivalent for) — falling back
+// to reading the archaic spelling with a modern voice would misrepresent it
+// as a real pronunciation rather than an honest gap.
+function PronunciationButton({
+  era,
+  accent,
+}: {
+  era: FlagshipEra;
+  accent: string;
+}) {
+  const [playing, setPlaying] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  // Scrubbing to a different era should stop whatever the previous era was
+  // playing, rather than leaving it running underneath the new one (or
+  // leaving this button stuck disabled because the old clip was paused, not
+  // ended).
+  useEffect(() => {
+    audioRef.current?.pause();
+    window.speechSynthesis.cancel();
+    // Resets this button's own playing indicator to match the playback we
+    // just force-stopped above — not derived from props/state react could
+    // compute during render.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setPlaying(false);
+  }, [era.id]);
+
+  const canPlay = Boolean(era.audioUrl) || era.era === "modern";
+  if (!canPlay) return null;
+
+  function handlePlay() {
+    audioRef.current?.pause();
+    window.speechSynthesis.cancel();
+    setPlaying(true);
+
+    if (era.audioUrl) {
+      const audio = new Audio(era.audioUrl);
+      audioRef.current = audio;
+      audio.addEventListener("ended", () => setPlaying(false));
+      audio.play().catch(() => setPlaying(false));
+    } else {
+      const utterance = new SpeechSynthesisUtterance(era.form);
+      utterance.lang = "en-US";
+      utterance.onend = () => setPlaying(false);
+      utterance.onerror = () => setPlaying(false);
+      window.speechSynthesis.speak(utterance);
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={handlePlay}
+      disabled={playing}
+      aria-label={`Play ${ERA_LABELS[era.era]} pronunciation`}
+      className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-strata-parchment/30 text-strata-parchment/70 transition-colors hover:border-strata-parchment/60 hover:text-strata-parchment disabled:opacity-40"
+      style={playing ? { borderColor: accent, color: accent } : undefined}
+    >
+      <svg viewBox="0 0 24 24" fill="currentColor" className="h-3 w-3" aria-hidden>
+        <path d="M8 5v14l11-7z" />
+      </svg>
+    </button>
   );
 }

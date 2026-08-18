@@ -1,6 +1,6 @@
 {
   "name": "strata",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -11,7 +11,8 @@
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
     "ingest": "tsx scripts/ingest-kaikki.ts",
-    "backfill:quote-translations": "tsx scripts/backfill-quote-translations.ts"
+    "backfill:quote-translations": "tsx scripts/backfill-quote-translations.ts",
+    "audio:generate": "tsx scripts/generate-pronunciation-audio.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.117.1",

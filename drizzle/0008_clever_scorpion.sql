@@ -1,0 +1,1 @@
+ALTER TABLE "flagship_eras" ADD COLUMN "audio_url" text;
