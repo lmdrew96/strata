@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Header } from "../../Header";
 
@@ -41,6 +41,10 @@ const ERA_LABELS: Record<string, string> = {
   early_modern_english: "Early Modern English",
   modern: "Modern",
 };
+
+// Chronological order, used to keep a chronologically-sorted era list when
+// one gets added mid-edit and to derive orderIndex on save.
+const ERAS = Object.keys(ERA_LABELS);
 
 const DRIFT_TYPES: DriftType[] = [
   "pejoration",
@@ -190,6 +194,9 @@ function WordCard({
   const [saving, setSaving] = useState(false);
   const [draftDriftType, setDraftDriftType] = useState<DriftType | null>(word.driftType);
   const [draftEras, setDraftEras] = useState<FlagshipEra[]>(word.eras);
+  // Newly-added eras aren't in the DB yet, so they get a negative local id
+  // (real ids are serial/positive) -- update/route.ts treats id < 0 as "insert".
+  const nextTempId = useRef(-1);
 
   function startEditing() {
     setDraftDriftType(word.driftType);
@@ -201,13 +208,41 @@ function WordCard({
     setDraftEras((prev) => prev.map((e) => (e.id === id ? { ...e, ...patch } : e)));
   }
 
+  function addEra(era: string) {
+    const newEra: FlagshipEra = {
+      id: nextTempId.current--,
+      era,
+      form: "",
+      ipa: "",
+      quote: "",
+      quoteCitation: "",
+      quoteTranslation: "",
+      gloss: "",
+      needsVerification: true,
+      verificationNote: "Manually added — not yet verified.",
+      orderIndex: 0,
+    };
+    setDraftEras((prev) =>
+      [...prev, newEra].sort((a, b) => ERAS.indexOf(a.era) - ERAS.indexOf(b.era)),
+    );
+  }
+
+  function removeEra(id: number) {
+    setDraftEras((prev) => prev.filter((e) => e.id !== id));
+  }
+
+  const missingEras = ERAS.filter((k) => !draftEras.some((e) => e.era === k));
+
   async function handleSave() {
     setSaving(true);
     try {
+      // draftEras is kept chronologically sorted (addEra re-sorts on
+      // insert), so its array order doubles as the new orderIndex.
+      const eras = draftEras.map((e, i) => ({ ...e, orderIndex: i }));
       await fetch(`/api/flagship/${word.id}/update`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ driftType: draftDriftType, eras: draftEras }),
+        body: JSON.stringify({ driftType: draftDriftType, eras }),
       });
       await onSaved();
       setEditing(false);
@@ -266,21 +301,30 @@ function WordCard({
             key={era.id}
             className="min-w-[220px] flex-1 rounded-md border border-strata-parchment/10 bg-strata-rosewood/20 p-3"
           >
-            <div className="flex items-center justify-between gap-2">
+            <div className={editing ? "flex flex-col gap-1.5" : "flex items-center justify-between gap-2"}>
               <span className="font-data text-xs font-medium tracking-wide text-strata-parchment/40 uppercase">
                 {ERA_LABELS[era.era] ?? era.era}
               </span>
               {editing ? (
-                <label className="font-data flex shrink-0 items-center gap-1 text-xs text-amber-400">
-                  <input
-                    type="checkbox"
-                    checked={era.needsVerification}
-                    onChange={(e) =>
-                      updateEra(era.id, { needsVerification: e.target.checked })
-                    }
-                  />
-                  needs verification
-                </label>
+                <div className="flex flex-wrap items-center gap-2">
+                  <label className="font-data flex items-center gap-1 text-xs text-amber-400">
+                    <input
+                      type="checkbox"
+                      checked={era.needsVerification}
+                      onChange={(e) =>
+                        updateEra(era.id, { needsVerification: e.target.checked })
+                      }
+                    />
+                    needs verification
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => removeEra(era.id)}
+                    className="font-data rounded border border-red-500/30 px-1.5 py-0.5 text-xs text-red-300 transition-colors hover:bg-red-500/10"
+                  >
+                    Remove
+                  </button>
+                </div>
               ) : (
                 era.needsVerification && (
                   <span className="font-data shrink-0 rounded bg-amber-500/20 px-1.5 py-0.5 text-xs font-medium text-amber-300">
@@ -380,6 +424,21 @@ function WordCard({
           </div>
         ))}
       </div>
+
+      {editing && missingEras.length > 0 && (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {missingEras.map((k) => (
+            <button
+              key={k}
+              type="button"
+              onClick={() => addEra(k)}
+              className="font-data rounded border border-dashed border-strata-parchment/30 px-2 py-1 text-xs text-strata-parchment/50 transition-colors hover:border-strata-coral/50 hover:text-strata-parchment"
+            >
+              + {ERA_LABELS[k]}
+            </button>
+          ))}
+        </div>
+      )}
 
       {word.siblings.length > 0 && (
         <div className="font-data mt-4 flex flex-wrap items-center gap-2 text-xs text-strata-parchment/60">
