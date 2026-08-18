@@ -1,18 +1,16 @@
 import { and, eq, inArray } from "drizzle-orm";
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
+import { cache } from "react";
 import { db } from "../../../db";
 import { flagshipEras, flagshipSiblings, flagshipWords } from "../../../db/schema";
 import { Header } from "../../Header";
 import { TimelineScrubber } from "./TimelineScrubber";
 
-export default async function WordPage({
-  params,
-}: {
-  params: Promise<{ headword: string }>;
-}) {
-  const { headword } = await params;
-  const normalized = decodeURIComponent(headword).toLowerCase();
-
+// Wrapped in React's cache() so generateMetadata and the page component
+// share one DB round-trip per request instead of two -- drizzle queries
+// aren't deduped by Next's fetch cache the way fetch() calls are.
+const getWordWithEras = cache(async (normalized: string) => {
   // Draft/pending/rejected words are mid-review, not launch content — only
   // 'approved' is safe to serve publicly at this URL.
   const [word] = await db
@@ -22,13 +20,53 @@ export default async function WordPage({
       and(eq(flagshipWords.headword, normalized), eq(flagshipWords.status, "approved")),
     );
 
-  if (!word) notFound();
+  if (!word) return null;
 
   const eras = await db
     .select()
     .from(flagshipEras)
     .where(eq(flagshipEras.flagshipWordId, word.id))
     .orderBy(flagshipEras.orderIndex);
+
+  return { word, eras };
+});
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ headword: string }>;
+}): Promise<Metadata> {
+  const { headword } = await params;
+  const normalized = decodeURIComponent(headword).toLowerCase();
+
+  const result = await getWordWithEras(normalized);
+  if (!result) return { title: "Not found — Strata" };
+
+  const chain = result.eras
+    .map((e) => e.gloss)
+    .filter((g): g is string => Boolean(g))
+    .join(" → ");
+  const description = chain || "In-depth English etymology, in historical context.";
+  const title = `${result.word.headword} — Strata`;
+
+  return {
+    title,
+    description,
+    openGraph: { title, description },
+  };
+}
+
+export default async function WordPage({
+  params,
+}: {
+  params: Promise<{ headword: string }>;
+}) {
+  const { headword } = await params;
+  const normalized = decodeURIComponent(headword).toLowerCase();
+
+  const result = await getWordWithEras(normalized);
+  if (!result) notFound();
+  const { word, eras } = result;
 
   // Siblings aren't symmetric in storage -- each word's list is generated
   // independently, so A listing B doesn't guarantee B's own generation
