@@ -64,6 +64,13 @@
       "when": 1787012577487,
       "tag": "0008_clever_scorpion",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1787020607948,
+      "tag": "0009_easy_johnny_blaze",
+      "breakpoints": true
     }
   ]
 }

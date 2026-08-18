@@ -14,6 +14,7 @@ type FlagshipEra = {
   quoteTranslation: string | null;
   gloss: string | null;
   needsVerification: boolean;
+  verificationNote: string | null;
   orderIndex: number;
 };
 
@@ -270,7 +271,7 @@ function WordCard({
                 {ERA_LABELS[era.era] ?? era.era}
               </span>
               {editing ? (
-                <label className="font-data flex items-center gap-1 text-xs text-amber-400">
+                <label className="font-data flex shrink-0 items-center gap-1 text-xs text-amber-400">
                   <input
                     type="checkbox"
                     checked={era.needsVerification}
@@ -288,6 +289,21 @@ function WordCard({
                 )
               )}
             </div>
+
+            {!editing && era.needsVerification && era.verificationNote && (
+              <p className="font-data mt-1 text-xs text-amber-300/70 italic">
+                {era.verificationNote}
+              </p>
+            )}
+
+            {editing && era.needsVerification && (
+              <input
+                value={era.verificationNote ?? ""}
+                onChange={(e) => updateEra(era.id, { verificationNote: e.target.value })}
+                placeholder="why does this need verification?"
+                className="font-data mt-1 w-full rounded border border-amber-500/30 bg-strata-rosewood/20 px-1.5 py-1 text-xs text-amber-200 placeholder:text-amber-200/40"
+              />
+            )}
 
             {editing ? (
               <div className="mt-1 space-y-1">

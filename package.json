@@ -1,6 +1,6 @@
 {
   "name": "strata",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -12,7 +12,9 @@
     "db:studio": "drizzle-kit studio",
     "ingest": "tsx scripts/ingest-kaikki.ts",
     "backfill:quote-translations": "tsx scripts/backfill-quote-translations.ts",
-    "audio:generate": "tsx scripts/generate-pronunciation-audio.ts"
+    "audio:generate": "tsx scripts/generate-pronunciation-audio.ts",
+    "flagship:batch": "tsx scripts/generate-flagship-batch.ts",
+    "flagship:backfill-notes": "tsx scripts/backfill-verification-notes.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.117.1",

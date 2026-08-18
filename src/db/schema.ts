@@ -193,6 +193,10 @@ export const flagshipEras = pgTable(
     // Claude's own flag that a quote/citation should be checked against a
     // real source before publishing — the human-review half of the pipeline.
     needsVerification: boolean("needs_verification").notNull().default(true),
+    // Why needsVerification is true -- either Claude's own stated doubt
+    // ("citation date is approximate") or the code's form/quote mismatch
+    // override (see flagship.ts). Null whenever needsVerification is false.
+    verificationNote: text("verification_note"),
     orderIndex: integer("order_index").notNull(),
   },
   (table) => [index("flagship_eras_word_idx").on(table.flagshipWordId)],

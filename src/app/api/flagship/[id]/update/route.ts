@@ -41,6 +41,7 @@ export async function POST(
         quoteTranslation: era.quoteTranslation || null,
         gloss: era.gloss || null,
         needsVerification: era.needsVerification,
+        verificationNote: era.needsVerification ? era.verificationNote || null : null,
         ...(audioUrl !== undefined ? { audioUrl } : {}),
       })
       .where(eq(flagshipEras.id, era.id));

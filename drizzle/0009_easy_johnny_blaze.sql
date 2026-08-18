@@ -1,0 +1,1 @@
+ALTER TABLE "flagship_eras" ADD COLUMN "verification_note" text;

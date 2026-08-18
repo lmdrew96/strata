@@ -81,6 +81,11 @@ const FLAGSHIP_SCHEMA = {
             description:
               "True unless you have high confidence this exact quote and citation are accurate and verifiable against a real historical source. Default to true when uncertain. Irrelevant when quote is empty.",
           },
+          verification_note: {
+            type: "string",
+            description:
+              "A one-sentence explanation of what specifically needs checking, e.g. \"citation date is approximate\" or \"recalling this quote from memory, not verified against a primary source\" or \"unsure this exact spelling is attested vs. a related form\". A human reviewer reads this to know what to check, so name the specific doubt, not a generic disclaimer. Leave as an empty string whenever needs_verification is false.",
+          },
         },
         required: [
           "era",
@@ -91,6 +96,7 @@ const FLAGSHIP_SCHEMA = {
           "quote_translation",
           "gloss",
           "needs_verification",
+          "verification_note",
         ],
         additionalProperties: false,
       },
@@ -133,6 +139,7 @@ type FlagshipDraftResponse = {
     quote_translation: string;
     gloss: string;
     needs_verification: boolean;
+    verification_note: string;
   }[];
   sibling_words: { word: string; shared_ancestor: string }[];
 };
@@ -165,11 +172,26 @@ Finally, name up to 3 sibling_words: other real English words that share a docum
 
 Only include a stage if the word (or a clear ancestor form) is genuinely attested at that stage — if Old English has no attested ancestor, you may omit it, but Modern and at least two earlier stages should normally be present for a flagship word.
 
-Be honest about your confidence: set needs_verification to true for any quote or citation you are not highly confident is accurate — a human researcher will check it before publication. Never fabricate a citation to appear more authoritative; an honest needs_verification flag is more useful than false confidence.`;
+Before writing a quote down from memory, use the web_search tool to try to confirm it against a real source — Wikisource is a good bet for Old and Middle English texts; the OED, Etymonline, and Google Books are useful for citations and approximate dates more generally. Search is best-effort, not mandatory: obscure Old English attestations often aren't indexed anywhere, so an unconfirmed quote is fine as long as it's flagged.
+
+Be honest about your confidence: set needs_verification to true for any quote or citation you are not highly confident is accurate, INCLUDING when you searched and still couldn't confirm it — a human researcher will check it before publication. Never fabricate a citation to appear more authoritative; an honest needs_verification flag is more useful than false confidence. Whenever needs_verification is true, fill verification_note with a one-sentence explanation of the specific doubt (e.g. "citation date is approximate", "recalling this quote from memory, not verified against a primary source", or "searched but couldn't find this quote in an indexed source") — the reviewer relies on this to know what to actually check, so name the doubt, not a generic disclaimer.`;
 
   const message = await anthropic.messages.parse({
     model: "claude-sonnet-5",
-    max_tokens: 8192,
+    // Search results, code-execution traces (search runs under the hood
+    // per the tool docs), and thinking blocks all count against this
+    // budget alongside the actual schema output -- 8192 was tight before
+    // web_search was added and risked truncating the final JSON block.
+    // Bumped alongside max_uses below -- more searches means more search-
+    // result/code-execution content sharing this budget with the actual
+    // schema output. The TS SDK auto-scales its request timeout up for
+    // large max_tokens on non-streaming calls, so this doesn't need
+    // streaming to avoid an HTTP timeout.
+    max_tokens: 24000,
+    // One word can carry up to 3 quotes (OE/ME/EME) sharing this budget --
+    // the backfill script found single tricky quotes needing 2-3 query
+    // rewrites on their own, so 4 total was too tight across all three.
+    tools: [{ type: "web_search_20260209", name: "web_search", max_uses: 10 }],
     output_config: {
       effort: "high",
       format: { type: "json_schema", schema: FLAGSHIP_SCHEMA },
@@ -220,6 +242,19 @@ Be honest about your confidence: set needs_verification to true for any quote or
     // Prompting alone didn't fully prevent this, so force review whenever
     // it recurs rather than trusting the two fields to agree.
     const formMismatch = hasQuote && !e.quote.toLowerCase().includes(e.form.toLowerCase());
+    // Don't trust the model's self-report once there's no quote to verify —
+    // seen it mark an invented, uncited "quote" as needs_verification=false.
+    const needsVerification = hasQuote ? e.needs_verification || formMismatch : false;
+    // The mismatch note (code-detected, always accurate) leads; the model's
+    // own note follows when it gave one -- either can be absent on its own
+    // (formMismatch without the model flagging anything, or vice versa).
+    const mismatchNote = formMismatch
+      ? `Form "${e.form}" doesn't appear in the quote as spelled.`
+      : null;
+    const modelNote = e.verification_note.trim() || null;
+    const verificationNote = needsVerification
+      ? [mismatchNote, modelNote].filter(Boolean).join(" ") || null
+      : null;
     return {
       flagshipWordId: word.id,
       era: e.era,
@@ -229,9 +264,8 @@ Be honest about your confidence: set needs_verification to true for any quote or
       quoteCitation: hasQuote ? e.quote_citation : null,
       quoteTranslation: hasQuote ? e.quote_translation : null,
       gloss: e.gloss,
-      // Don't trust the model's self-report once there's no quote to verify —
-      // seen it mark an invented, uncited "quote" as needs_verification=false.
-      needsVerification: hasQuote ? e.needs_verification || formMismatch : false,
+      needsVerification,
+      verificationNote,
       orderIndex: i,
     };
   });
