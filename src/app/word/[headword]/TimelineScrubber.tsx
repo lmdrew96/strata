@@ -2,30 +2,8 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import type { Era, FlagshipEra } from "../../../db/schema";
-
-const ERA_LABELS: Record<Era, string> = {
-  old_english: "Old English",
-  middle_english: "Middle English",
-  early_modern_english: "Early Modern English",
-  modern: "Modern",
-};
-
-const ERA_DATES: Record<Era, string> = {
-  old_english: "c. 900",
-  middle_english: "c. 1400",
-  early_modern_english: "c. 1600",
-  modern: "Today",
-};
-
-// One accent per era, matching the spec's sediment gradient: oldest reads
-// deep and dark, modern resolves into the brightest coral.
-const ERA_COLORS: Record<Era, string> = {
-  old_english: "#26121b",
-  middle_english: "#6b1a34",
-  early_modern_english: "#ce3737",
-  modern: "#fb6734",
-};
+import type { FlagshipEra } from "../../../db/schema";
+import { ERA_COLORS, ERA_DATES, ERA_LABELS } from "../../../lib/eras";
 
 type Sibling = {
   id: number;
