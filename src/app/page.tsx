@@ -3,6 +3,7 @@ import { db } from "../db";
 import { flagshipEras, flagshipWords } from "../db/schema";
 import { ERA_LABELS } from "../lib/eras";
 import { pickWeekly, sampleWeekly, shuffleWeekly, weeklySeed } from "../lib/weekly-rotation";
+import { Header } from "./Header";
 import { MatchingGame, type GameCard } from "./MatchingGame";
 import { WordOfTheWeek } from "./WordOfTheWeek";
 
@@ -25,13 +26,16 @@ export default async function Home() {
 
   if (words.length === 0) {
     return (
-      <main className="flex min-h-screen flex-col items-center justify-center bg-strata-teal px-6 text-center">
-        <p className="font-display text-2xl text-strata-parchment">Strata</p>
-        <p className="font-data mt-3 max-w-md text-sm text-strata-parchment/60">
-          No flagship words have been published yet. Check back once the first batch clears
-          review.
-        </p>
-      </main>
+      <>
+        <Header />
+        <main className="flex min-h-screen flex-col items-center justify-center bg-strata-teal px-6 text-center">
+          <p className="font-display text-2xl text-strata-parchment">Strata</p>
+          <p className="font-data mt-3 max-w-md text-sm text-strata-parchment/60">
+            No flagship words have been published yet. Check back once the first batch clears
+            review.
+          </p>
+        </main>
+      </>
     );
   }
 
@@ -79,23 +83,23 @@ export default async function Home() {
   );
 
   return (
-    <main className="flex min-h-screen flex-col items-center gap-16 bg-strata-teal px-6 py-16">
-      <div className="text-center">
-        <p className="font-data text-xs tracking-[0.3em] text-strata-parchment/50 uppercase">
-          Strata
-        </p>
-        <p className="font-body-serif mt-3 max-w-md text-lg text-strata-parchment/80">
-          In-depth English etymology, in historical context.
-        </p>
-      </div>
+    <>
+      <Header />
+      <main className="flex min-h-screen flex-col items-center gap-16 bg-strata-teal px-6 py-16">
+        <div className="text-center">
+          <p className="font-body-serif max-w-md text-lg text-strata-parchment/80">
+            In-depth English etymology, in historical context.
+          </p>
+        </div>
 
-      <WordOfTheWeek
-        headword={wordOfWeek.headword}
-        driftType={wordOfWeek.driftType}
-        eras={wordOfWeekEras}
-      />
+        <WordOfTheWeek
+          headword={wordOfWeek.headword}
+          driftType={wordOfWeek.driftType}
+          eras={wordOfWeekEras}
+        />
 
-      {gameCards.length > 0 && <MatchingGame initialCards={gameCards} />}
-    </main>
+        {gameCards.length > 0 && <MatchingGame initialCards={gameCards} />}
+      </main>
+    </>
   );
 }

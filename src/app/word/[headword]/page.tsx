@@ -2,6 +2,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { notFound } from "next/navigation";
 import { db } from "../../../db";
 import { flagshipEras, flagshipSiblings, flagshipWords } from "../../../db/schema";
+import { Header } from "../../Header";
 import { TimelineScrubber } from "./TimelineScrubber";
 
 export default async function WordPage({
@@ -76,16 +77,19 @@ export default async function WordPage({
   const existingHeadwords = new Set(existingSiblingWords.map((w) => w.headword));
 
   return (
-    <main className="min-h-screen bg-strata-teal">
-      <TimelineScrubber
-        headword={word.headword}
-        driftType={word.driftType}
-        eras={eras}
-        siblings={siblings.map((s) => ({
-          ...s,
-          exists: existingHeadwords.has(s.siblingHeadword),
-        }))}
-      />
-    </main>
+    <>
+      <Header />
+      <main className="min-h-screen bg-strata-teal">
+        <TimelineScrubber
+          headword={word.headword}
+          driftType={word.driftType}
+          eras={eras}
+          siblings={siblings.map((s) => ({
+            ...s,
+            exists: existingHeadwords.has(s.siblingHeadword),
+          }))}
+        />
+      </main>
+    </>
   );
 }

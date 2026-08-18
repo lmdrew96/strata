@@ -39,10 +39,6 @@ export function TimelineScrubber({ headword, driftType, eras, siblings }: Props)
 
   return (
     <div className="mx-auto flex min-h-screen max-w-3xl flex-col items-center px-6 py-16">
-      <p className="font-data text-xs tracking-[0.3em] text-strata-parchment/50 uppercase">
-        Strata
-      </p>
-
       {driftType && (
         <p className="font-data mt-8 text-xs tracking-[0.2em] text-strata-parchment/60 uppercase">
           {driftType}
