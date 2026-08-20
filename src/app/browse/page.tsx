@@ -11,6 +11,11 @@ export const metadata: Metadata = {
   description: "Every published word, browsable by headword.",
 };
 
+// Without this, Next prerenders the list once at build time and a word
+// approved afterward (no redeploy) wouldn't show up here -- same reasoning
+// as the homepage's force-dynamic for weekly rotation.
+export const dynamic = "force-dynamic";
+
 // Approved-only, same publish gate as /word/[headword] and the homepage --
 // draft/pending/rejected words aren't launch content.
 export default async function BrowsePage() {
