@@ -23,19 +23,38 @@ import type {
  *
  * Whether a resumed call gets a fresh per-request tool-use budget (e.g.
  * web_search max_uses) or shares the original budget is not documented
- * anywhere accessible here -- unverified either way.
+ * anywhere accessible here -- unverified either way. Because of that,
+ * `onUsage` (see below) sums web_search/web_fetch request counts across
+ * every iteration of the pause_turn loop rather than trusting the final
+ * message's usage to already be cumulative.
  */
+export type ToolUsage = {
+  webSearchRequests: number;
+  webFetchRequests: number;
+};
+
 export async function createAndParse<T>(
   anthropic: Anthropic,
   params: MessageCreateParamsNonStreaming,
+  onUsage?: (usage: ToolUsage) => void,
+  signal?: AbortSignal,
 ): Promise<T | null> {
   const messages: MessageParam[] = [...params.messages];
-  let message: Message = await anthropic.messages.stream({ ...params, messages }).finalMessage();
+  let message: Message = await anthropic.messages
+    .stream({ ...params, messages }, { signal })
+    .finalMessage();
+
+  let webSearchRequests = message.usage.server_tool_use?.web_search_requests ?? 0;
+  let webFetchRequests = message.usage.server_tool_use?.web_fetch_requests ?? 0;
 
   while (message.stop_reason === "pause_turn") {
     messages.push({ role: "assistant", content: message.content });
-    message = await anthropic.messages.stream({ ...params, messages }).finalMessage();
+    message = await anthropic.messages.stream({ ...params, messages }, { signal }).finalMessage();
+    webSearchRequests += message.usage.server_tool_use?.web_search_requests ?? 0;
+    webFetchRequests += message.usage.server_tool_use?.web_fetch_requests ?? 0;
   }
+
+  onUsage?.({ webSearchRequests, webFetchRequests });
 
   const textBlock = message.content.find((block) => block.type === "text");
   if (!textBlock || textBlock.type !== "text") return null;

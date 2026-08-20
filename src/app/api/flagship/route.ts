@@ -35,8 +35,15 @@ export async function POST(request: Request) {
   }
 
   try {
-    await generateFlagshipDraft(headword.trim().toLowerCase(), undefined, { force: !!force });
+    await generateFlagshipDraft(headword.trim().toLowerCase(), undefined, {
+      force: !!force,
+      signal: request.signal,
+    });
   } catch (err) {
+    if (request.signal.aborted) {
+      // Client hit Stop -- the connection is already gone, nothing to send back.
+      return new Response(null, { status: 499 });
+    }
     console.error(err);
     const message = err instanceof Error ? err.message : "Generation failed";
     // Approved-word regeneration without force is a deliberate block, not a

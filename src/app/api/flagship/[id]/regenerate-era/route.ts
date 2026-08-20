@@ -26,9 +26,13 @@ export async function POST(
   }
 
   try {
-    const draft = await regenerateFlagshipEra(word.headword, era as Era);
+    const draft = await regenerateFlagshipEra(word.headword, era as Era, request.signal);
     return NextResponse.json(draft);
   } catch (err) {
+    if (request.signal.aborted) {
+      // Client hit Stop -- the connection is already gone, nothing to send back.
+      return new Response(null, { status: 499 });
+    }
     console.error(err);
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Regeneration failed" },

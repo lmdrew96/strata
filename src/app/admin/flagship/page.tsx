@@ -121,6 +121,7 @@ export default function FlagshipAdminPage() {
   const [words, setWords] = useState<FlagshipWord[]>([]);
   const [headwordInput, setHeadwordInput] = useState("");
   const [generating, setGenerating] = useState(false);
+  const generateControllerRef = useRef<AbortController | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<FlagshipWord["status"] | "all">("all");
@@ -153,11 +154,12 @@ export default function FlagshipAdminPage() {
     loadWords();
   }, []);
 
-  async function generateDraft(headword: string, force: boolean) {
+  async function generateDraft(headword: string, force: boolean, signal: AbortSignal): Promise<boolean> {
     const res = await fetch("/api/flagship", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ headword, force }),
+      signal,
     });
     if (res.ok) return true;
 
@@ -169,7 +171,7 @@ export default function FlagshipAdminPage() {
       const proceed = window.confirm(
         `${body.error}\n\nRegenerate anyway? Human-edited and approved eras still won't be overwritten directly -- you'll get pending revisions to review.`,
       );
-      if (proceed) return generateDraft(headword, true);
+      if (proceed) return generateDraft(headword, true, signal);
       return false;
     }
     throw new Error(body.error ?? "Generation failed");
@@ -178,17 +180,28 @@ export default function FlagshipAdminPage() {
   async function handleGenerate(e: React.FormEvent) {
     e.preventDefault();
     if (!headwordInput.trim()) return;
+    const controller = new AbortController();
+    generateControllerRef.current = controller;
     setGenerating(true);
     setError(null);
     try {
-      const ok = await generateDraft(headwordInput.trim().toLowerCase(), false);
+      const ok = await generateDraft(headwordInput.trim().toLowerCase(), false, controller.signal);
       if (ok) setHeadwordInput("");
       await loadWords();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Generation failed");
+      if (err instanceof DOMException && err.name === "AbortError") {
+        setError("Generation stopped.");
+      } else {
+        setError(err instanceof Error ? err.message : "Generation failed");
+      }
     } finally {
+      generateControllerRef.current = null;
       setGenerating(false);
     }
+  }
+
+  function handleStopGenerate() {
+    generateControllerRef.current?.abort();
   }
 
   async function handleApprove(id: number) {
@@ -272,13 +285,23 @@ export default function FlagshipAdminPage() {
               className="font-data flex-1 rounded border border-strata-parchment/20 bg-strata-rosewood/20 px-3 py-2 text-sm text-strata-parchment placeholder:text-strata-parchment/40 focus:border-strata-coral/50 focus:outline-none"
               disabled={generating}
             />
-            <button
-              type="submit"
-              disabled={generating}
-              className="rounded bg-strata-coral px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-strata-coral/90 disabled:opacity-50"
-            >
-              {generating ? "Researching…" : "Generate draft"}
-            </button>
+            {generating ? (
+              <button
+                type="button"
+                onClick={handleStopGenerate}
+                className="rounded border border-red-500/40 px-4 py-2 text-sm font-medium text-red-300 transition-colors hover:bg-red-500/10"
+              >
+                Stop
+              </button>
+            ) : (
+              <button
+                type="submit"
+                disabled={generating}
+                className="rounded bg-strata-coral px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-strata-coral/90 disabled:opacity-50"
+              >
+                Generate draft
+              </button>
+            )}
           </form>
           {error && <p className="mt-2 text-sm text-red-400">{error}</p>}
 
@@ -398,6 +421,7 @@ function WordCard({
   const [busyEra, setBusyEra] = useState<{ id: number; action: "regenerate" | "translate" } | null>(
     null,
   );
+  const regenerateControllerRef = useRef<AbortController | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [resolvingRevision, setResolvingRevision] = useState<number | null>(null);
 
@@ -462,6 +486,8 @@ function WordCard({
   }
 
   async function handleRegenerateEra(era: FlagshipEra) {
+    const controller = new AbortController();
+    regenerateControllerRef.current = controller;
     setBusyEra({ id: era.id, action: "regenerate" });
     setActionError(null);
     try {
@@ -469,6 +495,7 @@ function WordCard({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ era: era.era }),
+        signal: controller.signal,
       });
       if (!res.ok) {
         const body = await res.json();
@@ -477,10 +504,19 @@ function WordCard({
       const draft = await res.json();
       updateEra(era.id, draft);
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : "Regeneration failed");
+      if (err instanceof DOMException && err.name === "AbortError") {
+        setActionError("Regeneration stopped.");
+      } else {
+        setActionError(err instanceof Error ? err.message : "Regeneration failed");
+      }
     } finally {
+      regenerateControllerRef.current = null;
       setBusyEra(null);
     }
+  }
+
+  function handleStopRegenerate() {
+    regenerateControllerRef.current?.abort();
   }
 
   async function handleTranslateQuote(era: FlagshipEra) {
@@ -618,16 +654,24 @@ function WordCard({
                     />
                     needs verification
                   </label>
-                  <button
-                    type="button"
-                    onClick={() => handleRegenerateEra(era)}
-                    disabled={busyEra !== null}
-                    className="font-data rounded border border-strata-parchment/20 px-1.5 py-0.5 text-xs text-strata-parchment/60 transition-colors hover:border-strata-coral/50 hover:text-strata-parchment disabled:opacity-50"
-                  >
-                    {busyEra?.id === era.id && busyEra.action === "regenerate"
-                      ? "Researching…"
-                      : "Regenerate"}
-                  </button>
+                  {busyEra?.id === era.id && busyEra.action === "regenerate" ? (
+                    <button
+                      type="button"
+                      onClick={handleStopRegenerate}
+                      className="font-data rounded border border-red-500/40 px-1.5 py-0.5 text-xs text-red-300 transition-colors hover:bg-red-500/10"
+                    >
+                      Stop
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => handleRegenerateEra(era)}
+                      disabled={busyEra !== null}
+                      className="font-data rounded border border-strata-parchment/20 px-1.5 py-0.5 text-xs text-strata-parchment/60 transition-colors hover:border-strata-coral/50 hover:text-strata-parchment disabled:opacity-50"
+                    >
+                      Regenerate
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => removeEra(era.id)}

@@ -1,7 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { eq } from "drizzle-orm";
 import { db } from "../db";
-import { createAndParse } from "./anthropic-resume";
+import { type ToolUsage, createAndParse } from "./anthropic-resume";
 import { ERA_DATES, ERA_LABELS } from "./eras";
 import { findLocalEvidence } from "./sourcing-tier";
 import {
@@ -46,8 +46,9 @@ const CORPUS_SOURCE: Record<Exclude<Era, "modern">, string> = {
     "Wikisource or EEBO-TCP first, or failing those a specific known digitized edition -- search to find the specific page, then web_fetch it to read the exact original-spelling wording rather than relying on a search snippet alone",
 };
 
-// Shared between FLAGSHIP_SCHEMA's `eras` array (full-word generation) and
-// the single-era regeneration schema below -- same field contract either way.
+// Used by regenerateFlagshipEra's single-era schema below -- the live-fetch
+// fallback path both for the admin UI's "Regenerate" button and for
+// generateFlagshipDraft's phase-2 per-era fallback (ChaosPatch 058715e2).
 const ERA_ITEM_SCHEMA = {
   type: "object",
   properties: {
@@ -110,7 +111,63 @@ const ERA_ITEM_SCHEMA = {
   additionalProperties: false,
 } as const;
 
-const FLAGSHIP_SCHEMA = {
+// Sibling identification is a phase-1, trained-knowledge judgment call (see
+// 00061cbd for grounding this against words.etymologyRelations candidates
+// later).
+const FLAGSHIP_SCHEMA_SIBLINGS = {
+  type: "array",
+  description:
+    "Other real English words that share a documented root with this word — genuine cognates or common descendants of the same Latin/Greek/PIE ancestor, not just words with a similar meaning. Only include well-documented, genuinely interesting connections (at most 3); leave empty if none stand out. The sibling doesn't need to already exist in Strata.",
+  items: {
+    type: "object",
+    properties: {
+      word: {
+        type: "string",
+        description:
+          "A genuine modern English word — never a foreign-language form, and never a word with a parenthetical caveat appended to it. If the only related term you can think of is a foreign cognate with no real English descendant, omit that connection entirely rather than including the foreign word here.",
+      },
+      shared_ancestor: {
+        type: "string",
+        description: "The shared ancestor term and language, briefly glossed, e.g. \"Latin phantasia (imagination)\".",
+      },
+    },
+    required: ["word", "shared_ancestor"],
+    additionalProperties: false,
+  },
+} as const;
+
+// Phase-1 schema (ChaosPatch 058715e2) -- the cheap, no-tools first pass.
+// Only the fields the model can judge from its own trained knowledge:
+// form/ipa/gloss per era, drift_type, sibling_words. Quote/citation/
+// verification fields are deliberately absent here -- they're either filled
+// in deterministically from local corpus/kaikki evidence, or via a live-
+// fetch fallback scoped to just the eras local evidence didn't cover (see
+// generateFlagshipDraft below).
+const PHASE1_ERA_ITEM_SCHEMA = {
+  type: "object",
+  properties: {
+    era: { type: "string", enum: ERAS },
+    form: {
+      type: "string",
+      description:
+        "The word's attested or reconstructed form (spelling) at this era, to the best of your knowledge -- this is used as a search key against local corpora afterward, not the final answer.",
+    },
+    ipa: {
+      type: "string",
+      description:
+        "Reconstructed or attested IPA pronunciation at this era, as bare phonemes with no enclosing slashes or brackets (e.g. \"kniçt\", not \"/kniçt/\").",
+    },
+    gloss: {
+      type: "string",
+      description:
+        "The single core sense of the word at this era, in 2-4 words (e.g. \"blessed\", \"innocent, pitiable\", \"mounted warrior\"). Not a list of every near-synonym, not a sentence. This gloss gets joined era-to-era into a scannable chain like \"blessed -> innocent -> foolish\", so it must stay that short and pick the one essential meaning.",
+    },
+  },
+  required: ["era", "form", "ipa", "gloss"],
+  additionalProperties: false,
+} as const;
+
+const PHASE1_SCHEMA = {
   type: "object",
   properties: {
     drift_type: {
@@ -121,34 +178,45 @@ const FLAGSHIP_SCHEMA = {
     },
     eras: {
       type: "array",
-      items: ERA_ITEM_SCHEMA,
+      items: PHASE1_ERA_ITEM_SCHEMA,
     },
-    sibling_words: {
-      type: "array",
-      description:
-        "Other real English words that share a documented root with this word — genuine cognates or common descendants of the same Latin/Greek/PIE ancestor, not just words with a similar meaning. Only include well-documented, genuinely interesting connections (at most 3); leave empty if none stand out. The sibling doesn't need to already exist in Strata.",
-      items: {
-        type: "object",
-        properties: {
-          word: {
-            type: "string",
-            description:
-              "A genuine modern English word — never a foreign-language form, and never a word with a parenthetical caveat appended to it. If the only related term you can think of is a foreign cognate with no real English descendant, omit that connection entirely rather than including the foreign word here.",
-          },
-          shared_ancestor: {
-            type: "string",
-            description:
-              "The shared ancestor term and language, briefly glossed, e.g. \"Latin phantasia (imagination)\".",
-          },
-        },
-        required: ["word", "shared_ancestor"],
-        additionalProperties: false,
-      },
-    },
+    sibling_words: FLAGSHIP_SCHEMA_SIBLINGS,
   },
   required: ["drift_type", "eras", "sibling_words"],
   additionalProperties: false,
 } as const;
+
+type Phase1EraItem = {
+  era: Era;
+  form: string;
+  ipa: string;
+  gloss: string;
+};
+
+type Phase1Response = {
+  drift_type: DriftType;
+  eras: Phase1EraItem[];
+  sibling_words: { word: string; shared_ancestor: string }[];
+};
+
+// Phase-1 has no quote/citation/verification fields to offer -- feeding an
+// empty-quote EraDraftResponse into processEraDraft is exactly what makes
+// its local-evidence check run (findLocalEvidence keys off `form`/`headword`
+// alone) and, when no evidence turns up, correctly fall through to the
+// "form present, no quote" -> amber branch rather than a live-fetch guess.
+function toEraDraftResponse(e: Phase1EraItem): EraDraftResponse {
+  return {
+    era: e.era,
+    form: e.form,
+    ipa: e.ipa,
+    quote: "",
+    quote_citation: "",
+    quote_translation: "",
+    gloss: e.gloss,
+    needs_verification: false,
+    verification_note: "",
+  };
+}
 
 // Exported so scripts/backfill-sourcing-tier.ts can reuse processEraDraft's
 // tier-assignment logic directly instead of re-deriving it -- an offline
@@ -164,12 +232,6 @@ export type EraDraftResponse = {
   gloss: string;
   needs_verification: boolean;
   verification_note: string;
-};
-
-type FlagshipDraftResponse = {
-  drift_type: DriftType;
-  eras: EraDraftResponse[];
-  sibling_words: { word: string; shared_ancestor: string }[];
 };
 
 export type EraDraft = {
@@ -330,9 +392,24 @@ export async function processEraDraft(era: Era, e: EraDraftResponse, headword: s
 
 /**
  * Runs the Claude-assisted research pass for one flagship word and saves the
- * result as a draft. Every quote/citation is Claude's best-effort recall, not
- * a verified source — needs_verification flags what a human reviewer should
- * check before approving (see flagshipWords.status: pending -> draft -> approved).
+ * result as a draft. Every quote/citation is either deterministic (sourced
+ * from local corpora/kaikki) or Claude's best-effort recall/live-fetch --
+ * needs_verification flags what a human reviewer should check before
+ * approving (see flagshipWords.status: pending -> draft -> approved).
+ *
+ * Two-phase per ChaosPatch 058715e2: the model can't know whether Strata's
+ * own DB has a match for a given era, so "only search if local data doesn't
+ * have it" can't be a prompt instruction -- it has to be a code-side gate on
+ * which eras even get web_search/web_fetch tools.
+ * 1. Cheap phase-1 call, NO search/fetch tools: form/ipa/gloss/drift_type/
+ *    siblings from the model's trained knowledge alone.
+ * 2. For each non-modern era, findLocalEvidence() against phase-1's proposed
+ *    form. Evidence found -> build that era directly via processEraDraft,
+ *    zero further API cost. No evidence -> regenerateFlagshipEra() does the
+ *    live-fetch research for just that era, reusing its existing corpus-
+ *    priority prompt rather than duplicating it here.
+ * Modern era never gets a live-fetch pass (CLAUDE.md: modern quotes should
+ * almost always be empty) -- it's always built directly from phase-1.
  *
  * Non-destructive by design (see ChaosPatch 9d724e79 -- generation used to
  * delete-then-reinsert every era unconditionally, and silently wiped a
@@ -348,7 +425,7 @@ export async function processEraDraft(era: Era, e: EraDraftResponse, headword: s
 export async function generateFlagshipDraft(
   headword: string,
   extraGuidance?: string,
-  opts?: { force?: boolean },
+  opts?: { force?: boolean; signal?: AbortSignal },
 ): Promise<void> {
   const [existingWord] = await db
     .select()
@@ -361,76 +438,54 @@ export async function generateFlagshipDraft(
     );
   }
 
-  const system = `You are researching the word "${headword}" for Strata, a deep-dive English etymology explorer. Strata's content is browsable metadata, not prose essays — every field should be scannable at a glance, not a paragraph explaining itself.
+  const phase1System = `You are researching the word "${headword}" for Strata, a deep-dive English etymology explorer. Strata's content is browsable metadata, not prose essays — every field should be scannable at a glance, not a paragraph explaining itself.
 
-For each of four historical stages of English — Old English (~900), Middle English (~1400), Early Modern English (~1600), and Modern English (today) — provide:
-- The word's attested form (spelling) at that stage
-- Reconstructed or attested IPA pronunciation
-- For Old English, Middle English, and Early Modern English: a real attested quote using the word at that stage, in its original spelling, with a citation (author, work, approximate date), plus a plain modern English rendering of that same quote so a reader who can't parse the original spelling still gets the sentence
-
-The form field and the quote must never disagree. When a stage has a quote, the form you give for that stage must be the exact spelling used in that quote — not a separately-chosen "typical" spelling. Pick the quote first, then read the form off of it.
+This is a first pass using only your own linguistic knowledge — no search or lookup tools are available here, and you should not attempt to cite or quote a specific source. For each of four historical stages of English — Old English (~900), Middle English (~1400), Early Modern English (~1600), and Modern English (today) — provide your best-informed judgment of:
+- The word's attested or reconstructed form (spelling) at that stage. This is used as a search key against Strata's own local historical corpora afterward, not treated as a final citation-backed answer.
+- Reconstructed or attested IPA pronunciation, as bare phonemes with no enclosing slashes or brackets (e.g. "kniçt", not "/kniçt/").
 - The single core sense of the word at that stage, in 2-4 words (e.g. "blessed", "mounted warrior") — not a sentence, not a list of every near-synonym. These glosses get joined era-to-era into a scannable chain like "blessed -> innocent -> foolish", so precision and brevity both matter: pick the one essential meaning, not an elaboration of it.
 
-The modern-English stage does not need a quote — an everyday word's current usage doesn't have a single notable citation the way an archaic form does. Leave quote and quote_citation empty for the modern stage unless a specific, real, well-known citation is genuinely worth including. Never invent an illustrative example sentence and present it as a quote.
+Only include a stage if the word (or a clear ancestor form) is genuinely attested or well-reconstructed at that stage — if Old English has no attested ancestor, you may omit it, but Modern and at least two earlier stages should normally be present for a flagship word.
 
 Then classify the overall semantic drift with a single drift_type tag.
 
 Finally, name up to 3 sibling_words: other real English words that share a documented root with this word (genuine cognates or common descendants of the same Latin/Greek/PIE ancestor — not just words with a similar meaning). Only include connections you're genuinely confident are documented; leave the list empty rather than force a weak or speculative match.
 
-Only include a stage if the word (or a clear ancestor form) is genuinely attested at that stage — if Old English has no attested ancestor, you may omit it, but Modern and at least two earlier stages should normally be present for a flagship word.
+Attested quotes, citations, and confidence flags are sourced separately in a later pass — don't invent any of those here, just form/ipa/gloss/drift_type/siblings.`;
 
-Before writing a quote down from memory, source it from the era-appropriate corpus below, in this priority order — don't skip straight to general search or memory:
-- Old English: ${CORPUS_SOURCE.old_english}.
-- Middle English: ${CORPUS_SOURCE.middle_english}.
-- Early Modern English: ${CORPUS_SOURCE.early_modern_english}.
-
-web_fetch can only load a URL already surfaced in this conversation (e.g. from a web_search result) — always search for the specific page first, then fetch it, rather than guessing at a URL directly.
-
-Only fall back to general web_search (Etymonline, the OED, and Google Books are useful for citations and approximate dates) or memory once you've actually checked the era-appropriate corpus above and it doesn't have this word — not before. Search and fetch are both best-effort: obscure attestations sometimes aren't digitized anywhere, and an honest unconfirmed quote is the correct, expected outcome in that case, not a failure.
-
-Be honest about your confidence: set needs_verification to true for any quote or citation you are not highly confident is accurate, INCLUDING when you checked the corpus and general search and still couldn't confirm it — a human researcher will check it before publication. Never fabricate a citation to appear more authoritative; an honest needs_verification flag is more useful than false confidence. Whenever needs_verification is true, fill verification_note with a one-sentence explanation of the specific doubt (e.g. "citation date is approximate", "recalling this quote from memory, not verified against a primary source", "searched but couldn't find this quote in an indexed source", or "found on [corpus] via search but the page wouldn't fetch (403/paywalled)") — the reviewer relies on this to know what to actually check, so name the doubt, not a generic disclaimer.`;
-
-  const parsed = await createAndParse<FlagshipDraftResponse>(anthropic, {
-    model: "claude-sonnet-5",
-    // Search results, fetched-page content, code-execution traces (search
-    // and fetch both run under the hood per the tool docs), and thinking
-    // blocks all count against this budget alongside the actual schema
-    // output. Bumped from 24000 when web_fetch was added alongside
-    // web_search -- fetched page text is much larger than a search
-    // snippet, even with max_content_tokens capping each fetch below. The
-    // TS SDK auto-scales its request timeout up for large max_tokens on
-    // non-streaming calls, so this doesn't need streaming to avoid an HTTP
-    // timeout.
-    max_tokens: 40000,
-    // One word can carry up to 3 quotes (OE/ME/EME) sharing this budget --
-    // the backfill script found single tricky quotes needing 2-3 query
-    // rewrites on their own, so 4 total was too tight across all three.
-    tools: [
-      { type: "web_search_20260209", name: "web_search", max_uses: 10 },
-      // Corpus-first sourcing (see CLAUDE.md) -- web_fetch can only load a
-      // URL already surfaced by search, so each corpus lookup is a
-      // search-then-fetch pair; up to 3 corpus lookups (OE/ME/EME) plus
-      // headroom for a retry or a general-search fallback fetch.
-      // max_content_tokens caps each fetched page's share of max_tokens.
-      { type: "web_fetch_20260209", name: "web_fetch", max_uses: 6, max_content_tokens: 3000 },
-    ],
-    output_config: {
-      effort: "high",
-      format: { type: "json_schema", schema: FLAGSHIP_SCHEMA },
-    },
-    system,
-    messages: [
-      {
-        role: "user",
-        content: extraGuidance
-          ? `Research "${headword}" for Strata's flagship treatment. ${extraGuidance}`
-          : `Research "${headword}" for Strata's flagship treatment.`,
+  const phase1 = await createAndParse<Phase1Response>(
+    anthropic,
+    {
+      model: "claude-sonnet-5",
+      // No search/fetch tools attached, so this only needs headroom for
+      // thinking + the schema output itself (form/ipa/gloss x4 eras, drift
+      // type, siblings) -- an order of magnitude below the old single-call
+      // 40000, which had to share budget with fetched page content.
+      max_tokens: 4000,
+      output_config: {
+        effort: "high",
+        format: { type: "json_schema", schema: PHASE1_SCHEMA },
       },
-    ],
-  });
+      system: phase1System,
+      messages: [
+        {
+          role: "user",
+          content: extraGuidance
+            ? `Research "${headword}" for Strata's flagship treatment. ${extraGuidance}`
+            : `Research "${headword}" for Strata's flagship treatment.`,
+        },
+      ],
+    },
+    (usage) => {
+      console.log(
+        `[flagship] "${headword}" phase-1 (no tools) used ${usage.webSearchRequests} web_search + ${usage.webFetchRequests} web_fetch calls (expected 0/0)`,
+      );
+    },
+    opts?.signal,
+  );
 
-  if (!parsed) {
-    throw new Error(`No parsed output in response for "${headword}"`);
+  if (!phase1) {
+    throw new Error(`No parsed output in phase-1 response for "${headword}"`);
   }
 
   // A response that parses fine but comes back with zero eras is not a
@@ -438,11 +493,37 @@ Be honest about your confidence: set needs_verification to true for any quote or
   // touch anything in that case anyway (nothing to loop over), but refuse
   // explicitly so this reads as a genuine failure rather than a quiet no-op;
   // re-running the generator is the recovery path either way.
-  if (parsed.eras.length === 0) {
+  if (phase1.eras.length === 0) {
     throw new Error(
-      `Parsed response for "${headword}" had zero eras -- refusing to overwrite existing data.`,
+      `Parsed phase-1 response for "${headword}" had zero eras -- refusing to overwrite existing data.`,
     );
   }
+
+  // Phase 2: resolve each era's quote either from local evidence (free) or a
+  // live-fetch fallback scoped to just that era (regenerateFlagshipEra).
+  const eraDrafts: EraDraft[] = [];
+  let localCount = 0;
+  let fallbackCount = 0;
+
+  for (const e of phase1.eras) {
+    if (e.era === "modern") {
+      eraDrafts.push(await processEraDraft(e.era, toEraDraftResponse(e), headword));
+      continue;
+    }
+
+    const evidence = await findLocalEvidence(e.era, e.form, headword);
+    if (evidence) {
+      localCount++;
+      eraDrafts.push(await processEraDraft(e.era, toEraDraftResponse(e), headword));
+    } else {
+      fallbackCount++;
+      eraDrafts.push(await regenerateFlagshipEra(headword, e.era, opts?.signal));
+    }
+  }
+
+  console.log(
+    `[flagship] "${headword}": ${localCount} era(s) resolved from local evidence with zero tool calls, ${fallbackCount} era(s) needed a live-fetch fallback`,
+  );
 
   // The neon-http driver has no transaction support (each query is its own
   // HTTP request), so these run sequentially rather than atomically. Worst
@@ -453,13 +534,13 @@ Be honest about your confidence: set needs_verification to true for any quote or
     .values({
       headword,
       status: "draft",
-      driftType: parsed.drift_type,
+      driftType: phase1.drift_type,
     })
     .onConflictDoUpdate({
       target: flagshipWords.headword,
       set: {
         status: "draft",
-        driftType: parsed.drift_type,
+        driftType: phase1.drift_type,
         updatedAt: new Date(),
       },
     })
@@ -471,10 +552,9 @@ Be honest about your confidence: set needs_verification to true for any quote or
     : [];
   const existingByEra = new Map(existingEras.map((e) => [e.era, e]));
 
-  for (const e of parsed.eras) {
-    const draft = await processEraDraft(e.era, e, headword);
-    const existingRow = existingByEra.get(e.era);
-    const orderIndex = ERAS.indexOf(e.era);
+  for (const draft of eraDrafts) {
+    const existingRow = existingByEra.get(draft.era);
+    const orderIndex = ERAS.indexOf(draft.era);
 
     if (existingRow && (existingRow.humanEdited || wordWasApproved)) {
       // Protected: propose instead of overwrite -- see the function doc
@@ -537,7 +617,7 @@ Be honest about your confidence: set needs_verification to true for any quote or
   if (!wordWasApproved) {
     await db.delete(flagshipSiblings).where(eq(flagshipSiblings.flagshipWordId, word.id));
 
-    const siblingRows: NewFlagshipSibling[] = parsed.sibling_words
+    const siblingRows: NewFlagshipSibling[] = phase1.sibling_words
       .filter((s) => s.word.trim().length > 0)
       .map((s) => ({
         flagshipWordId: word.id,
@@ -558,7 +638,11 @@ Be honest about your confidence: set needs_verification to true for any quote or
  * write to the DB itself, matching the admin UI's edit flow where nothing
  * commits until the editor hits Save.
  */
-export async function regenerateFlagshipEra(headword: string, era: Era): Promise<EraDraft> {
+export async function regenerateFlagshipEra(
+  headword: string,
+  era: Era,
+  signal?: AbortSignal,
+): Promise<EraDraft> {
   const label = ERA_LABELS[era];
   const date = ERA_DATES[era];
 
@@ -584,31 +668,40 @@ The single core sense of the word at this stage, in 2-4 words (e.g. "blessed", "
 
 Be honest about your confidence: set needs_verification to true for any quote or citation you are not highly confident is accurate, INCLUDING when you checked the corpus and general search and still couldn't confirm it — a human researcher will check it before publication. Never fabricate a citation to appear more authoritative; an honest needs_verification flag is more useful than false confidence. Whenever needs_verification is true, fill verification_note with a one-sentence explanation of the specific doubt (e.g. "citation date is approximate", "recalling this quote from memory, not verified against a primary source", "searched but couldn't find this quote in an indexed source", or "found on [corpus] via search but the page wouldn't fetch (403/paywalled)") — the reviewer relies on this to know what to actually check, so name the doubt, not a generic disclaimer.`;
 
-  const parsed = await createAndParse<EraDraftResponse>(anthropic, {
-    model: "claude-sonnet-5",
-    // Fetched-page content shares this budget alongside search results and
-    // thinking, same reasoning as generateFlagshipDraft's 40000 -- scaled
-    // down since one era carries at most one quote/one corpus lookup vs.
-    // up to three for a full-word generation.
-    max_tokens: 16000,
-    tools: [
-      { type: "web_search_20260209", name: "web_search", max_uses: 5 },
-      // See generateFlagshipDraft's web_fetch comment -- one corpus lookup
-      // (search-then-fetch) plus headroom for a retry or fallback fetch.
-      { type: "web_fetch_20260209", name: "web_fetch", max_uses: 3, max_content_tokens: 3000 },
-    ],
-    output_config: {
-      effort: "high",
-      format: { type: "json_schema", schema: ERA_ITEM_SCHEMA },
-    },
-    system,
-    messages: [
-      {
-        role: "user",
-        content: `Research the ${label} stage of "${headword}" for Strata's flagship treatment.`,
+  const parsed = await createAndParse<EraDraftResponse>(
+    anthropic,
+    {
+      model: "claude-sonnet-5",
+      // Fetched-page content shares this budget alongside search results and
+      // thinking, same reasoning as generateFlagshipDraft's 40000 -- scaled
+      // down since one era carries at most one quote/one corpus lookup vs.
+      // up to three for a full-word generation.
+      max_tokens: 16000,
+      tools: [
+        { type: "web_search_20260209", name: "web_search", max_uses: 5 },
+        // See generateFlagshipDraft's web_fetch comment -- one corpus lookup
+        // (search-then-fetch) plus headroom for a retry or fallback fetch.
+        { type: "web_fetch_20260209", name: "web_fetch", max_uses: 3, max_content_tokens: 3000 },
+      ],
+      output_config: {
+        effort: "high",
+        format: { type: "json_schema", schema: ERA_ITEM_SCHEMA },
       },
-    ],
-  });
+      system,
+      messages: [
+        {
+          role: "user",
+          content: `Research the ${label} stage of "${headword}" for Strata's flagship treatment.`,
+        },
+      ],
+    },
+    (usage) => {
+      console.log(
+        `[flagship] "${headword}" (${era}) live-fetch fallback used ${usage.webSearchRequests} web_search + ${usage.webFetchRequests} web_fetch calls`,
+      );
+    },
+    signal,
+  );
 
   if (!parsed) {
     throw new Error(`No parsed output regenerating ${era} for "${headword}"`);
