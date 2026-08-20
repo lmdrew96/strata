@@ -5,6 +5,12 @@ import { useRouter } from "next/navigation";
 import { shortenCitation } from "../../../lib/citation-format";
 import { Header } from "../../Header";
 
+// A stuck generate/regenerate call used to hang indefinitely with no way to
+// notice short of watching the screen (Nae hit a 10+ minute hang once) --
+// this auto-aborts after the same 5 minutes as the API routes' maxDuration,
+// so an unattended hang ends on its own instead of needing a manual Stop.
+const AUTO_ABORT_MS = 5 * 60 * 1000;
+
 type SourcingTier = "green" | "amber" | "red" | "n_a";
 
 type PendingEraRevision = {
@@ -204,6 +210,11 @@ export default function FlagshipAdminPage() {
     if (!headwordInput.trim()) return;
     const controller = new AbortController();
     generateControllerRef.current = controller;
+    let timedOut = false;
+    const timeoutId = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, AUTO_ABORT_MS);
     setGenerating(true);
     setError(null);
     try {
@@ -212,11 +223,12 @@ export default function FlagshipAdminPage() {
       await loadWords();
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") {
-        setError("Generation stopped.");
+        setError(timedOut ? "Generation timed out after 5 minutes." : "Generation stopped.");
       } else {
         setError(err instanceof Error ? err.message : "Generation failed");
       }
     } finally {
+      clearTimeout(timeoutId);
       generateControllerRef.current = null;
       setGenerating(false);
     }
@@ -524,6 +536,11 @@ function WordCard({
   async function handleRegenerateEra(era: FlagshipEra) {
     const controller = new AbortController();
     regenerateControllerRef.current = controller;
+    let timedOut = false;
+    const timeoutId = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, AUTO_ABORT_MS);
     setBusyEra({ id: era.id, action: "regenerate" });
     setActionError(null);
     try {
@@ -541,11 +558,12 @@ function WordCard({
       updateEra(era.id, draft);
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") {
-        setActionError("Regeneration stopped.");
+        setActionError(timedOut ? "Regeneration timed out after 5 minutes." : "Regeneration stopped.");
       } else {
         setActionError(err instanceof Error ? err.message : "Regeneration failed");
       }
     } finally {
+      clearTimeout(timeoutId);
       regenerateControllerRef.current = null;
       setBusyEra(null);
     }

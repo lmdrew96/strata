@@ -4,6 +4,12 @@ import { db } from "../../../db";
 import { flagshipEras, flagshipSiblings, flagshipWords } from "../../../db/schema";
 import { generateFlagshipDraft } from "../../../lib/flagship";
 
+// Full-word generation can run a long tool-use resume loop (web_search +
+// web_fetch across multiple eras) -- an explicit ceiling here means a hung
+// call is killed by the platform instead of running indefinitely on an
+// implicit, unverified default. Matches the client's AUTO_ABORT_MS.
+export const maxDuration = 300;
+
 export async function GET() {
   const words = await db
     .select()

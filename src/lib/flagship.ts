@@ -715,12 +715,87 @@ Attested quotes, citations, and confidence flags are sourced separately in a lat
  * type, or siblings. Returns the draft for the caller to apply -- doesn't
  * write to the DB itself, matching the admin UI's edit flow where nothing
  * commits until the editor hits Save.
+ *
+ * Local-first, same discipline as generateFlagshipDraft's phase-2 gate
+ * (058715e2) and its kaikki grounding (00061cbd): check Strata's own corpus/
+ * kaikki data before ever calling the model with live web_search/web_fetch
+ * tools. This function used to skip straight to that live call regardless of
+ * era, even when local evidence already had a deterministic answer -- the
+ * admin "Regenerate" button called this directly, bypassing
+ * generateFlagshipDraft's local-evidence gate entirely, and the live-fetch
+ * tool-use resume loop is exactly where a 10+ minute hang came from once.
+ * `existing` (the era's current form/ipa/gloss, when this era was already
+ * saved) is the search key and content fallback -- a fresh, never-saved era
+ * has none, and falls through to the live-fetch path same as before.
  */
 export async function regenerateFlagshipEra(
   headword: string,
   era: Era,
   signal?: AbortSignal,
+  existing?: { form: string; ipa: string | null; gloss: string | null },
 ): Promise<EraDraft> {
+  if (era === "modern") {
+    const grounding = await getKaikkiGrounding(headword);
+    if (grounding?.isUnambiguous && (grounding.modernIpa || grounding.modernGloss)) {
+      let gloss = existing?.gloss ?? "";
+      if (grounding.modernGloss) {
+        try {
+          gloss = await shortenKaikkiGloss(grounding.modernGloss, headword);
+        } catch (err) {
+          console.error(`[flagship] "${headword}" modern gloss shortening failed during regenerate:`, err);
+        }
+      }
+      const ipa = grounding.modernIpa ?? existing?.ipa ?? "";
+      if (ipa || gloss) {
+        console.log(`[flagship] "${headword}" (modern) regenerated from local kaikki data, zero Sonnet calls`);
+        return processEraDraft(
+          "modern",
+          {
+            era: "modern",
+            form: headword,
+            ipa,
+            quote: "",
+            quote_citation: "",
+            quote_translation: "",
+            gloss,
+            needs_verification: false,
+            verification_note: "",
+          },
+          headword,
+        );
+      }
+    }
+  } else {
+    const searchForm = existing?.form || headword;
+    const evidence = await findLocalEvidence(era, searchForm, headword);
+    if (evidence) {
+      let gloss = existing?.gloss ?? "";
+      if (evidence.quoteTranslation) {
+        try {
+          gloss = await extractGlossFromTranslation(evidence.quoteTranslation, searchForm, era);
+        } catch (err) {
+          console.error(`[flagship] "${headword}" (${era}) gloss extraction failed during regenerate:`, err);
+        }
+      }
+      console.log(`[flagship] "${headword}" (${era}) regenerated from local corpus evidence, zero Sonnet calls`);
+      return processEraDraft(
+        era,
+        {
+          era,
+          form: searchForm,
+          ipa: existing?.ipa ?? "",
+          quote: "",
+          quote_citation: "",
+          quote_translation: "",
+          gloss,
+          needs_verification: false,
+          verification_note: "",
+        },
+        headword,
+      );
+    }
+  }
+
   const label = ERA_LABELS[era];
   const date = ERA_DATES[era];
 
