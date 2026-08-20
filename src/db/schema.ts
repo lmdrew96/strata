@@ -138,12 +138,84 @@ export const flagshipStatusEnum = pgEnum("flagship_status", [
   "approved",
   "rejected",
 ]);
+// A machine-proposed replacement for a protected flagshipEras row -- see
+// flagshipEras.pendingRevision below.
+export type PendingEraRevision = {
+  form: string;
+  ipa: string | null;
+  quote: string | null;
+  quoteCitation: string | null;
+  quoteTranslation: string | null;
+  gloss: string | null;
+  needsVerification: boolean;
+  verificationNote: string | null;
+  generatedAt: string;
+};
+
 export const eraEnum = pgEnum("era", [
   "old_english",
   "middle_english",
   "early_modern_english",
   "modern",
 ]);
+
+// Local historical-corpus passages, searched by generateFlagshipDraft's
+// green-tier attestation step before anything falls back to a live corpus
+// fetch or Nae's own research (see CLAUDE.md's "Source priority"). One row
+// per source-specific unit -- a Bible verse, a CMEPV paragraph, a Nerthus UD
+// treebank sentence -- carrying the citation metadata that source itself
+// provides, so a match's quote_citation is never a guess.
+//
+// Shared shape across corpora on purpose (ChaosPatch ec83835c/b576e7de: "if
+// this works, OE and EModE follow the same pattern"). Two different kinds of
+// source use it differently:
+// - Passage-text corpora (CMEPV): searched by substring/trigram match
+//   against `text` for a given historical form. `lemma` is null.
+// - Lemma-tagged corpora (Nerthus UD treebank): searched by exact `lemma`
+//   match, which is what actually avoids the spelling-only false-positive
+//   problem the kaikki probe hit. `translation` comes pre-supplied by the
+//   source instead of being generated.
+export const corpusPassages = pgTable(
+  "corpus_passages",
+  {
+    id: serial("id").primaryKey(),
+    era: eraEnum("era").notNull(),
+    // Which ingested corpus this row came from, e.g. "cmepv", "nerthus".
+    sourceKey: text("source_key").notNull(),
+    // Source-specific document/text id (CMEPV: TEI filename; Nerthus: its
+    // own text code) -- not unique alone, a source usually has many rows
+    // per document.
+    textId: text("text_id").notNull(),
+    textTitle: text("text_title").notNull(),
+    textAuthor: text("text_author"),
+    textDate: text("text_date"),
+    // Where within the document this passage sits, for the citation --
+    // e.g. "CAP. XVI:8" (CMEPV, chapter:verse) or a Nerthus sent_id like
+    // "MARK.001.001.001". Free text because the shape genuinely differs
+    // per source; always paired with textTitle when displayed.
+    locator: text("locator"),
+    // Exact dictionary lemma this passage's headword-bearing token carries,
+    // for sources that provide one (Nerthus). Null for passage-only sources
+    // (CMEPV), which are matched by substring against `text` instead.
+    lemma: text("lemma"),
+    // Original-spelling passage text, quoted verbatim -- never paraphrased
+    // or normalized (see CLAUDE.md's corpus-search constraint).
+    text: text("text").notNull(),
+    // Pre-supplied modern-English rendering, only for sources that ship one
+    // (Nerthus). Null for CMEPV -- Strata generates its own quote_translation.
+    translation: text("translation"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => [
+    index("corpus_passages_source_idx").on(table.sourceKey, table.textId),
+    index("corpus_passages_lemma_idx").on(table.lemma),
+    index("corpus_passages_text_trgm_idx").using("gin", sql`${table.text} gin_trgm_ops`),
+  ],
+);
+
+export type CorpusPassage = typeof corpusPassages.$inferSelect;
+export type NewCorpusPassage = typeof corpusPassages.$inferInsert;
+
 export const driftTypeEnum = pgEnum("drift_type", [
   "pejoration",
   "amelioration",
@@ -197,6 +269,22 @@ export const flagshipEras = pgTable(
     // ("citation date is approximate") or the code's form/quote mismatch
     // override (see flagship.ts). Null whenever needsVerification is false.
     verificationNote: text("verification_note"),
+    // Set whenever this row has been through the admin editor's Save flow
+    // (hand-typed or a reviewed/accepted regeneration) -- see flagship.ts.
+    // Once true, generateFlagshipDraft will never overwrite this row's
+    // content directly; it proposes a pendingRevision instead. Rows on an
+    // approved flagshipWord are protected the same way regardless of this
+    // flag (checked against flagshipWords.status at generation time, not
+    // stored here).
+    humanEdited: boolean("human_edited").notNull().default(false),
+    // A machine-proposed replacement for this row's content, set instead of
+    // overwriting when the row is protected (humanEdited, or its word is
+    // approved). Shape mirrors the generated-era fields plus a timestamp:
+    // { form, ipa, quote, quoteCitation, quoteTranslation, gloss,
+    //   needsVerification, verificationNote, generatedAt }.
+    // Null when there's no pending proposal. Reviewed via accept/reject in
+    // the admin UI; a manual save of the row also clears it.
+    pendingRevision: jsonb("pending_revision").$type<PendingEraRevision | null>(),
     orderIndex: integer("order_index").notNull(),
   },
   (table) => [index("flagship_eras_word_idx").on(table.flagshipWordId)],

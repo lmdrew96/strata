@@ -64,6 +64,7 @@ export async function POST(
         gloss: era.gloss || null,
         needsVerification: era.needsVerification,
         verificationNote: era.needsVerification ? era.verificationNote || null : null,
+        humanEdited: true,
         orderIndex: era.orderIndex,
       });
       continue;
@@ -91,6 +92,11 @@ export async function POST(
         gloss: era.gloss || null,
         needsVerification: era.needsVerification,
         verificationNote: era.needsVerification ? era.verificationNote || null : null,
+        // A manual save is the human review step -- mark the row protected
+        // from future silent regeneration, and drop any stale machine
+        // proposal now superseded by this save.
+        humanEdited: true,
+        pendingRevision: null,
         orderIndex: era.orderIndex,
         ...(audioUrl !== undefined ? { audioUrl } : {}),
       })

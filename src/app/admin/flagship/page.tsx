@@ -4,6 +4,18 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Header } from "../../Header";
 
+type PendingEraRevision = {
+  form: string;
+  ipa: string | null;
+  quote: string | null;
+  quoteCitation: string | null;
+  quoteTranslation: string | null;
+  gloss: string | null;
+  needsVerification: boolean;
+  verificationNote: string | null;
+  generatedAt: string;
+};
+
 type FlagshipEra = {
   id: number;
   era: string;
@@ -15,6 +27,8 @@ type FlagshipEra = {
   gloss: string | null;
   needsVerification: boolean;
   verificationNote: string | null;
+  humanEdited: boolean;
+  pendingRevision: PendingEraRevision | null;
   orderIndex: number;
 };
 
@@ -84,22 +98,36 @@ export default function FlagshipAdminPage() {
     loadWords();
   }, []);
 
+  async function generateDraft(headword: string, force: boolean) {
+    const res = await fetch("/api/flagship", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ headword, force }),
+    });
+    if (res.ok) return true;
+
+    const body = await res.json();
+    // 409 means generateFlagshipDraft blocked because the word is already
+    // approved -- offer the explicit-intent confirmation the pipeline
+    // requires (see ChaosPatch 9d724e79) instead of just failing.
+    if (res.status === 409 && !force) {
+      const proceed = window.confirm(
+        `${body.error}\n\nRegenerate anyway? Human-edited and approved eras still won't be overwritten directly -- you'll get pending revisions to review.`,
+      );
+      if (proceed) return generateDraft(headword, true);
+      return false;
+    }
+    throw new Error(body.error ?? "Generation failed");
+  }
+
   async function handleGenerate(e: React.FormEvent) {
     e.preventDefault();
     if (!headwordInput.trim()) return;
     setGenerating(true);
     setError(null);
     try {
-      const res = await fetch("/api/flagship", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ headword: headwordInput.trim() }),
-      });
-      if (!res.ok) {
-        const body = await res.json();
-        throw new Error(body.error ?? "Generation failed");
-      }
-      setHeadwordInput("");
+      const ok = await generateDraft(headwordInput.trim().toLowerCase(), false);
+      if (ok) setHeadwordInput("");
       await loadWords();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Generation failed");
@@ -250,6 +278,28 @@ function WordCard({
     null,
   );
   const [actionError, setActionError] = useState<string | null>(null);
+  const [resolvingRevision, setResolvingRevision] = useState<number | null>(null);
+
+  async function handleResolveRevision(eraId: number, action: "accept" | "reject") {
+    setResolvingRevision(eraId);
+    setActionError(null);
+    try {
+      const res = await fetch(`/api/flagship/${word.id}/resolve-revision`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ eraId, action }),
+      });
+      if (!res.ok) {
+        const body = await res.json();
+        throw new Error(body.error ?? "Failed to resolve revision");
+      }
+      await onSaved();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Failed to resolve revision");
+    } finally {
+      setResolvingRevision(null);
+    }
+  }
 
   function startEditing() {
     setDraftDriftType(word.driftType);
@@ -273,6 +323,8 @@ function WordCard({
       gloss: "",
       needsVerification: true,
       verificationNote: "Manually added — not yet verified.",
+      humanEdited: true,
+      pendingRevision: null,
       orderIndex: 0,
     };
     setDraftEras((prev) =>
@@ -447,6 +499,53 @@ function WordCard({
               <p className="font-data mt-1 text-xs text-amber-300/70 italic">
                 {era.verificationNote}
               </p>
+            )}
+
+            {!editing && era.pendingRevision && (
+              <div className="mt-2 rounded border border-strata-coral/40 bg-strata-coral/10 p-2">
+                <p className="font-data text-xs font-medium text-strata-coral">
+                  Pending revision from regeneration — this row is protected
+                  {era.humanEdited ? " (hand-edited)" : " (word is approved)"}, so it was
+                  not overwritten.
+                </p>
+                <div className="font-data mt-1.5 space-y-0.5 text-xs text-strata-parchment/70">
+                  <p>
+                    <span className="text-strata-parchment/40">form:</span> {era.pendingRevision.form}
+                  </p>
+                  {era.pendingRevision.quote && (
+                    <p className="font-body-serif italic">
+                      &ldquo;{era.pendingRevision.quote}&rdquo;
+                      {era.pendingRevision.quoteCitation && (
+                        <span className="not-italic"> — {era.pendingRevision.quoteCitation}</span>
+                      )}
+                    </p>
+                  )}
+                  {era.pendingRevision.gloss && (
+                    <p>
+                      <span className="text-strata-parchment/40">gloss:</span>{" "}
+                      {era.pendingRevision.gloss}
+                    </p>
+                  )}
+                </div>
+                <div className="mt-2 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleResolveRevision(era.id, "accept")}
+                    disabled={resolvingRevision !== null}
+                    className="font-data rounded bg-strata-coral px-2 py-1 text-xs font-medium text-white transition-colors hover:bg-strata-coral/90 disabled:opacity-50"
+                  >
+                    {resolvingRevision === era.id ? "…" : "Accept"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleResolveRevision(era.id, "reject")}
+                    disabled={resolvingRevision !== null}
+                    className="font-data rounded border border-strata-parchment/20 px-2 py-1 text-xs text-strata-parchment/60 transition-colors hover:border-strata-coral/50 hover:text-strata-parchment disabled:opacity-50"
+                  >
+                    Reject
+                  </button>
+                </div>
+              </div>
             )}
 
             {editing && era.needsVerification && (

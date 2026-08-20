@@ -8,6 +8,7 @@ import {
   type Era,
   type NewFlagshipEra,
   type NewFlagshipSibling,
+  type PendingEraRevision,
   flagshipEras,
   flagshipSiblings,
   flagshipWords,
@@ -29,6 +30,19 @@ const DRIFT_TYPES: DriftType[] = [
   "widening",
   "other",
 ];
+
+// Corpus-first sourcing instructions (see CLAUDE.md's corpus table) -- the
+// fix for the near-100% needs_verification rate under web_search-only
+// prompting. Shared between full-word generation (a priority list across
+// three eras) and single-era regeneration (one era's entry, inlined below).
+const CORPUS_SOURCE: Record<Exclude<Era, "modern">, string> = {
+  old_english:
+    "bosworthtoller.com (the Bosworth-Toller Anglo-Saxon Dictionary) -- use web_search with a site:bosworthtoller.com query to find this word's entry, then web_fetch the entry page; it has attested quotes built directly into most entries",
+  middle_english:
+    "quod.lib.umich.edu/m/med (the Middle English Dictionary, University of Michigan) -- use web_search with a site:quod.lib.umich.edu/m/med query to find this word's entry, then web_fetch the entry page",
+  early_modern_english:
+    "Wikisource or EEBO-TCP first, or failing those a specific known digitized edition -- search to find the specific page, then web_fetch it to read the exact original-spelling wording rather than relying on a search snippet alone",
+};
 
 // Shared between FLAGSHIP_SCHEMA's `eras` array (full-word generation) and
 // the single-era regeneration schema below -- same field contract either way.
@@ -208,11 +222,34 @@ function processEraDraft(era: Era, e: EraDraftResponse): EraDraft {
  * result as a draft. Every quote/citation is Claude's best-effort recall, not
  * a verified source — needs_verification flags what a human reviewer should
  * check before approving (see flagshipWords.status: pending -> draft -> approved).
+ *
+ * Non-destructive by design (see ChaosPatch 9d724e79 -- generation used to
+ * delete-then-reinsert every era unconditionally, and silently wiped a
+ * hand-reviewed word's real content once when the model returned an empty
+ * parse). Every era row is now upserted individually, keyed by era, and a
+ * row that's protected -- humanEdited=true, or its word is already approved
+ * -- is never overwritten directly: the new draft is stashed on
+ * pendingRevision for a reviewer to accept or reject instead. An era the
+ * model omitted this run is left untouched rather than deleted. Regenerating
+ * an approved word at all requires opts.force, so a bare script invocation
+ * can't silently kick off a rewrite of published content.
  */
 export async function generateFlagshipDraft(
   headword: string,
   extraGuidance?: string,
+  opts?: { force?: boolean },
 ): Promise<void> {
+  const [existingWord] = await db
+    .select()
+    .from(flagshipWords)
+    .where(eq(flagshipWords.headword, headword));
+
+  if (existingWord?.status === "approved" && !opts?.force) {
+    throw new Error(
+      `"${headword}" is already approved. Re-running generation on it requires explicit force. Even with force, its human-edited and approved eras won't be overwritten directly -- regeneration proposes a pendingRevision for each instead of touching the row.`,
+    );
+  }
+
   const system = `You are researching the word "${headword}" for Strata, a deep-dive English etymology explorer. Strata's content is browsable metadata, not prose essays — every field should be scannable at a glance, not a paragraph explaining itself.
 
 For each of four historical stages of English — Old English (~900), Middle English (~1400), Early Modern English (~1600), and Modern English (today) — provide:
@@ -231,26 +268,41 @@ Finally, name up to 3 sibling_words: other real English words that share a docum
 
 Only include a stage if the word (or a clear ancestor form) is genuinely attested at that stage — if Old English has no attested ancestor, you may omit it, but Modern and at least two earlier stages should normally be present for a flagship word.
 
-Before writing a quote down from memory, use the web_search tool to try to confirm it against a real source — Wikisource is a good bet for Old and Middle English texts; the OED, Etymonline, and Google Books are useful for citations and approximate dates more generally. Search is best-effort, not mandatory: obscure Old English attestations often aren't indexed anywhere, so an unconfirmed quote is fine as long as it's flagged.
+Before writing a quote down from memory, source it from the era-appropriate corpus below, in this priority order — don't skip straight to general search or memory:
+- Old English: ${CORPUS_SOURCE.old_english}.
+- Middle English: ${CORPUS_SOURCE.middle_english}.
+- Early Modern English: ${CORPUS_SOURCE.early_modern_english}.
 
-Be honest about your confidence: set needs_verification to true for any quote or citation you are not highly confident is accurate, INCLUDING when you searched and still couldn't confirm it — a human researcher will check it before publication. Never fabricate a citation to appear more authoritative; an honest needs_verification flag is more useful than false confidence. Whenever needs_verification is true, fill verification_note with a one-sentence explanation of the specific doubt (e.g. "citation date is approximate", "recalling this quote from memory, not verified against a primary source", or "searched but couldn't find this quote in an indexed source") — the reviewer relies on this to know what to actually check, so name the doubt, not a generic disclaimer.`;
+web_fetch can only load a URL already surfaced in this conversation (e.g. from a web_search result) — always search for the specific page first, then fetch it, rather than guessing at a URL directly.
+
+Only fall back to general web_search (Etymonline, the OED, and Google Books are useful for citations and approximate dates) or memory once you've actually checked the era-appropriate corpus above and it doesn't have this word — not before. Search and fetch are both best-effort: obscure attestations sometimes aren't digitized anywhere, and an honest unconfirmed quote is the correct, expected outcome in that case, not a failure.
+
+Be honest about your confidence: set needs_verification to true for any quote or citation you are not highly confident is accurate, INCLUDING when you checked the corpus and general search and still couldn't confirm it — a human researcher will check it before publication. Never fabricate a citation to appear more authoritative; an honest needs_verification flag is more useful than false confidence. Whenever needs_verification is true, fill verification_note with a one-sentence explanation of the specific doubt (e.g. "citation date is approximate", "recalling this quote from memory, not verified against a primary source", "searched but couldn't find this quote in an indexed source", or "found on [corpus] via search but the page wouldn't fetch (403/paywalled)") — the reviewer relies on this to know what to actually check, so name the doubt, not a generic disclaimer.`;
 
   const parsed = await createAndParse<FlagshipDraftResponse>(anthropic, {
     model: "claude-sonnet-5",
-    // Search results, code-execution traces (search runs under the hood
-    // per the tool docs), and thinking blocks all count against this
-    // budget alongside the actual schema output -- 8192 was tight before
-    // web_search was added and risked truncating the final JSON block.
-    // Bumped alongside max_uses below -- more searches means more search-
-    // result/code-execution content sharing this budget with the actual
-    // schema output. The TS SDK auto-scales its request timeout up for
-    // large max_tokens on non-streaming calls, so this doesn't need
-    // streaming to avoid an HTTP timeout.
-    max_tokens: 24000,
+    // Search results, fetched-page content, code-execution traces (search
+    // and fetch both run under the hood per the tool docs), and thinking
+    // blocks all count against this budget alongside the actual schema
+    // output. Bumped from 24000 when web_fetch was added alongside
+    // web_search -- fetched page text is much larger than a search
+    // snippet, even with max_content_tokens capping each fetch below. The
+    // TS SDK auto-scales its request timeout up for large max_tokens on
+    // non-streaming calls, so this doesn't need streaming to avoid an HTTP
+    // timeout.
+    max_tokens: 40000,
     // One word can carry up to 3 quotes (OE/ME/EME) sharing this budget --
     // the backfill script found single tricky quotes needing 2-3 query
     // rewrites on their own, so 4 total was too tight across all three.
-    tools: [{ type: "web_search_20260209", name: "web_search", max_uses: 10 }],
+    tools: [
+      { type: "web_search_20260209", name: "web_search", max_uses: 10 },
+      // Corpus-first sourcing (see CLAUDE.md) -- web_fetch can only load a
+      // URL already surfaced by search, so each corpus lookup is a
+      // search-then-fetch pair; up to 3 corpus lookups (OE/ME/EME) plus
+      // headroom for a retry or a general-search fallback fetch.
+      // max_content_tokens caps each fetched page's share of max_tokens.
+      { type: "web_fetch_20260209", name: "web_fetch", max_uses: 6, max_content_tokens: 3000 },
+    ],
     output_config: {
       effort: "high",
       format: { type: "json_schema", schema: FLAGSHIP_SCHEMA },
@@ -268,6 +320,17 @@ Be honest about your confidence: set needs_verification to true for any quote or
 
   if (!parsed) {
     throw new Error(`No parsed output in response for "${headword}"`);
+  }
+
+  // A response that parses fine but comes back with zero eras is not a
+  // crash -- it's a bad/empty result. The per-era upsert below wouldn't
+  // touch anything in that case anyway (nothing to loop over), but refuse
+  // explicitly so this reads as a genuine failure rather than a quiet no-op;
+  // re-running the generator is the recovery path either way.
+  if (parsed.eras.length === 0) {
+    throw new Error(
+      `Parsed response for "${headword}" had zero eras -- refusing to overwrite existing data.`,
+    );
   }
 
   // The neon-http driver has no transaction support (each query is its own
@@ -291,30 +354,85 @@ Be honest about your confidence: set needs_verification to true for any quote or
     })
     .returning();
 
-  await db.delete(flagshipEras).where(eq(flagshipEras.flagshipWordId, word.id));
+  const wordWasApproved = existingWord?.status === "approved";
+  const existingEras = existingWord
+    ? await db.select().from(flagshipEras).where(eq(flagshipEras.flagshipWordId, word.id))
+    : [];
+  const existingByEra = new Map(existingEras.map((e) => [e.era, e]));
 
-  const eraRows: NewFlagshipEra[] = parsed.eras.map((e, i) => ({
-    flagshipWordId: word.id,
-    ...processEraDraft(e.era, e),
-    orderIndex: i,
-  }));
+  for (const e of parsed.eras) {
+    const draft = processEraDraft(e.era, e);
+    const existingRow = existingByEra.get(e.era);
+    const orderIndex = ERAS.indexOf(e.era);
 
-  if (eraRows.length > 0) {
-    await db.insert(flagshipEras).values(eraRows);
+    if (existingRow && (existingRow.humanEdited || wordWasApproved)) {
+      // Protected: propose instead of overwrite -- see the function doc
+      // comment. Leaves everything else about the row (including its
+      // current orderIndex) untouched.
+      const revision: PendingEraRevision = {
+        form: draft.form,
+        ipa: draft.ipa,
+        quote: draft.quote,
+        quoteCitation: draft.quoteCitation,
+        quoteTranslation: draft.quoteTranslation,
+        gloss: draft.gloss,
+        needsVerification: draft.needsVerification,
+        verificationNote: draft.verificationNote,
+        generatedAt: new Date().toISOString(),
+      };
+      await db
+        .update(flagshipEras)
+        .set({ pendingRevision: revision })
+        .where(eq(flagshipEras.id, existingRow.id));
+      continue;
+    }
+
+    if (existingRow) {
+      await db
+        .update(flagshipEras)
+        .set({
+          form: draft.form,
+          ipa: draft.ipa,
+          quote: draft.quote,
+          quoteCitation: draft.quoteCitation,
+          quoteTranslation: draft.quoteTranslation,
+          gloss: draft.gloss,
+          needsVerification: draft.needsVerification,
+          verificationNote: draft.verificationNote,
+          humanEdited: false,
+          pendingRevision: null,
+          orderIndex,
+        })
+        .where(eq(flagshipEras.id, existingRow.id));
+    } else {
+      const newRow: NewFlagshipEra = {
+        flagshipWordId: word.id,
+        ...draft,
+        orderIndex,
+      };
+      await db.insert(flagshipEras).values(newRow);
+    }
   }
 
-  await db.delete(flagshipSiblings).where(eq(flagshipSiblings.flagshipWordId, word.id));
+  // Siblings have no per-row edit tracking and no accept/reject UI (see
+  // ChaosPatch 9d724e79) -- once a word is approved, leave its curated
+  // siblings alone entirely rather than silently replace content nothing
+  // can review. A non-approved word's siblings still regenerate freely,
+  // same as before.
+  if (!wordWasApproved) {
+    await db.delete(flagshipSiblings).where(eq(flagshipSiblings.flagshipWordId, word.id));
 
-  const siblingRows: NewFlagshipSibling[] = parsed.sibling_words
-    .filter((s) => s.word.trim().length > 0)
-    .map((s) => ({
-      flagshipWordId: word.id,
-      siblingHeadword: s.word.trim().toLowerCase(),
-      sharedAncestor: s.shared_ancestor,
-    }));
+    const siblingRows: NewFlagshipSibling[] = parsed.sibling_words
+      .filter((s) => s.word.trim().length > 0)
+      .map((s) => ({
+        flagshipWordId: word.id,
+        siblingHeadword: s.word.trim().toLowerCase(),
+        sharedAncestor: s.shared_ancestor,
+      }));
 
-  if (siblingRows.length > 0) {
-    await db.insert(flagshipSiblings).values(siblingRows);
+    if (siblingRows.length > 0) {
+      await db.insert(flagshipSiblings).values(siblingRows);
+    }
   }
 }
 
@@ -329,6 +447,11 @@ export async function regenerateFlagshipEra(headword: string, era: Era): Promise
   const label = ERA_LABELS[era];
   const date = ERA_DATES[era];
 
+  const researchProtocol =
+    era === "modern"
+      ? ""
+      : `\n\nBefore writing a quote down from memory, source it from ${CORPUS_SOURCE[era]}.\n\nweb_fetch can only load a URL already surfaced in this conversation (e.g. from a web_search result) — always search for the specific page first, then fetch it, rather than guessing at a URL directly.\n\nOnly fall back to general web_search (Etymonline, the OED, and Google Books are useful for citations and approximate dates) or memory once you've actually checked that corpus and it doesn't have this word — not before. Search and fetch are both best-effort: obscure attestations sometimes aren't digitized anywhere, and an honest unconfirmed quote is the correct, expected outcome in that case, not a failure.\n\nIf, after exhausting the corpus and general search/memory, you find no genuine evidence this word (or a clear variant/ancestor form) existed at this stage at all, say so plainly rather than inventing a plausible-looking form, pronunciation, or gloss for a word that may not have existed yet — a guessed form is fabricated content, not a reconstruction, and worse than an honest gap. Leave form, ipa, quote, quote_citation, and quote_translation empty, gloss as a real short gloss of the word's known modern sense (not a meta-comment about attestation), and set needs_verification to true with a verification_note explaining that you found no evidence of attestation at this stage at all (a stronger and different doubt than an unconfirmed quote).`;
+
   const system = `You are researching the ${label} (${date}) stage of the word "${headword}" for Strata, a deep-dive English etymology explorer. Strata's content is browsable metadata, not prose essays — every field should be scannable at a glance, not a paragraph explaining itself.
 
 Provide:
@@ -342,18 +465,23 @@ ${
 
 The form field and the quote must never disagree. When there's a quote, the form you give must be the exact spelling used in that quote — not a separately-chosen "typical" spelling. Pick the quote first, then read the form off of it.
 
-The single core sense of the word at this stage, in 2-4 words (e.g. "blessed", "mounted warrior") — not a sentence, not a list of every near-synonym. This gloss gets joined with the word's other eras into a scannable chain like "blessed -> innocent -> foolish" elsewhere in the app, so precision and brevity both matter: pick the one essential meaning, not an elaboration of it.
+The single core sense of the word at this stage, in 2-4 words (e.g. "blessed", "mounted warrior") — not a sentence, not a list of every near-synonym. This gloss gets joined with the word's other eras into a scannable chain like "blessed -> innocent -> foolish" elsewhere in the app, so precision and brevity both matter: pick the one essential meaning, not an elaboration of it.${researchProtocol}
 
-Before writing a quote down from memory, use the web_search tool to try to confirm it against a real source — Wikisource is a good bet for Old and Middle English texts; the OED, Etymonline, and Google Books are useful for citations and approximate dates more generally. Search is best-effort, not mandatory: obscure attestations often aren't indexed anywhere, so an unconfirmed quote is fine as long as it's flagged.
-
-Be honest about your confidence: set needs_verification to true for any quote or citation you are not highly confident is accurate, INCLUDING when you searched and still couldn't confirm it — a human researcher will check it before publication. Never fabricate a citation to appear more authoritative; an honest needs_verification flag is more useful than false confidence. Whenever needs_verification is true, fill verification_note with a one-sentence explanation of the specific doubt (e.g. "citation date is approximate", "recalling this quote from memory, not verified against a primary source", or "searched but couldn't find this quote in an indexed source") — the reviewer relies on this to know what to actually check, so name the doubt, not a generic disclaimer.`;
+Be honest about your confidence: set needs_verification to true for any quote or citation you are not highly confident is accurate, INCLUDING when you checked the corpus and general search and still couldn't confirm it — a human researcher will check it before publication. Never fabricate a citation to appear more authoritative; an honest needs_verification flag is more useful than false confidence. Whenever needs_verification is true, fill verification_note with a one-sentence explanation of the specific doubt (e.g. "citation date is approximate", "recalling this quote from memory, not verified against a primary source", "searched but couldn't find this quote in an indexed source", or "found on [corpus] via search but the page wouldn't fetch (403/paywalled)") — the reviewer relies on this to know what to actually check, so name the doubt, not a generic disclaimer.`;
 
   const parsed = await createAndParse<EraDraftResponse>(anthropic, {
     model: "claude-sonnet-5",
-    // One era carries at most one quote, vs. up to three for a full-word
-    // generation -- scaled down from generateFlagshipDraft's 24000/10.
-    max_tokens: 8000,
-    tools: [{ type: "web_search_20260209", name: "web_search", max_uses: 5 }],
+    // Fetched-page content shares this budget alongside search results and
+    // thinking, same reasoning as generateFlagshipDraft's 40000 -- scaled
+    // down since one era carries at most one quote/one corpus lookup vs.
+    // up to three for a full-word generation.
+    max_tokens: 16000,
+    tools: [
+      { type: "web_search_20260209", name: "web_search", max_uses: 5 },
+      // See generateFlagshipDraft's web_fetch comment -- one corpus lookup
+      // (search-then-fetch) plus headroom for a retry or fallback fetch.
+      { type: "web_fetch_20260209", name: "web_fetch", max_uses: 3, max_content_tokens: 3000 },
+    ],
     output_config: {
       effort: "high",
       format: { type: "json_schema", schema: ERA_ITEM_SCHEMA },
@@ -386,4 +514,39 @@ export async function rejectFlagshipWord(id: number): Promise<void> {
     .update(flagshipWords)
     .set({ status: "rejected", updatedAt: new Date() })
     .where(eq(flagshipWords.id, id));
+}
+
+/**
+ * Applies a protected era's pendingRevision as its real content and clears
+ * the proposal. humanEdited is left as-is -- see generateFlagshipDraft's doc
+ * comment for why a previously-protected row stays protected against future
+ * silent regeneration even after this accept.
+ */
+export async function acceptEraRevision(eraId: number): Promise<void> {
+  const [row] = await db.select().from(flagshipEras).where(eq(flagshipEras.id, eraId));
+  if (!row) throw new Error(`Era ${eraId} not found`);
+  if (!row.pendingRevision) throw new Error(`Era ${eraId} has no pending revision`);
+
+  const revision: PendingEraRevision = row.pendingRevision;
+  await db
+    .update(flagshipEras)
+    .set({
+      form: revision.form,
+      ipa: revision.ipa,
+      quote: revision.quote,
+      quoteCitation: revision.quoteCitation,
+      quoteTranslation: revision.quoteTranslation,
+      gloss: revision.gloss,
+      needsVerification: revision.needsVerification,
+      verificationNote: revision.verificationNote,
+      pendingRevision: null,
+    })
+    .where(eq(flagshipEras.id, eraId));
+}
+
+export async function rejectEraRevision(eraId: number): Promise<void> {
+  await db
+    .update(flagshipEras)
+    .set({ pendingRevision: null })
+    .where(eq(flagshipEras.id, eraId));
 }
