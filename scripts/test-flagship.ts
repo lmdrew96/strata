@@ -4,7 +4,15 @@ import { flagshipEras, flagshipWords } from "../src/db/schema";
 import { eq } from "drizzle-orm";
 
 async function main() {
-  const words = process.argv.slice(2);
+  const rawArgs = process.argv.slice(2);
+  // Loader flags (e.g. dotenv_config_path=.env.local from `-r dotenv/config`,
+  // or anything starting with "-") land in argv alongside real headwords --
+  // treating them as words wastes a real API call per garbage token.
+  const words = rawArgs.filter((a) => !a.startsWith("-") && !a.includes("="));
+  const skipped = rawArgs.filter((a) => a.startsWith("-") || a.includes("="));
+  if (skipped.length > 0) {
+    console.log(`Skipping non-word args: ${skipped.join(", ")}`);
+  }
   if (words.length === 0) {
     console.error("Usage: tsx scripts/test-flagship.ts <word> [word...]");
     process.exit(1);
