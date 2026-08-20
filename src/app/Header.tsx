@@ -38,6 +38,14 @@ export function Header() {
         >
           Browse
         </Link>
+        {/* Plain <a>, not <Link> -- /random is a route handler, not a page,
+            and always needs a fresh redirect rather than a cached RSC fetch. */}
+        <a
+          href="/random"
+          className="font-data text-xs tracking-[0.2em] text-strata-parchment/60 uppercase transition-colors hover:text-strata-parchment"
+        >
+          Random
+        </a>
       </nav>
       <form onSubmit={handleSubmit} className="flex items-center gap-2">
         <input
