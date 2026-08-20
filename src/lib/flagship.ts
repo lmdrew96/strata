@@ -3,6 +3,8 @@ import { eq } from "drizzle-orm";
 import { db } from "../db";
 import { type ToolUsage, createAndParse } from "./anthropic-resume";
 import { ERA_DATES, ERA_LABELS } from "./eras";
+import { buildGroundingPromptContext, getKaikkiGrounding } from "./kaikki-grounding";
+import { extractGlossFromTranslation, shortenKaikkiGloss } from "./quote-translation";
 import { findLocalEvidence } from "./sourcing-tier";
 import {
   type DriftType,
@@ -112,9 +114,11 @@ const ERA_ITEM_SCHEMA = {
   additionalProperties: false,
 } as const;
 
-// Sibling identification is a phase-1, trained-knowledge judgment call (see
-// 00061cbd for grounding this against words.etymologyRelations candidates
-// later).
+// Sibling identification is still a phase-1, editorial judgment call -- the
+// model always makes the final pick -- but generateFlagshipDraft now grounds
+// it with real words.etymologyRelations candidates via
+// buildGroundingPromptContext (ChaosPatch 00061cbd) instead of leaving it
+// pure trained-knowledge recall.
 const FLAGSHIP_SCHEMA_SIBLINGS = {
   type: "array",
   description:
@@ -439,6 +443,13 @@ export async function generateFlagshipDraft(
     );
   }
 
+  // Local kaikki grounding (ChaosPatch 00061cbd) -- looked up once, up front,
+  // so it can both extend phase1System (siblings context, modern-field
+  // bypass notice) and, after parsing, override phase-1's modern-era answer
+  // field-by-field with real local data. Null when the headword has no
+  // ingested kaikki row at all; generation falls back to pure model recall.
+  const grounding = await getKaikkiGrounding(headword);
+
   const phase1System = `You are researching the word "${headword}" for Strata, a deep-dive English etymology explorer. Strata's content is browsable metadata, not prose essays — every field should be scannable at a glance, not a paragraph explaining itself.
 
 This is a first pass using only your own linguistic knowledge — no search or lookup tools are available here, and you should not attempt to cite or quote a specific source. For each of four historical stages of English — Old English (~900), Middle English (~1400), Early Modern English (~1600), and Modern English (today) — provide your best-informed judgment of:
@@ -452,7 +463,7 @@ Then classify the overall semantic drift with a single drift_type tag.
 
 Finally, name up to 3 sibling_words: other real English words that share a documented root with this word (genuine cognates or common descendants of the same Latin/Greek/PIE ancestor — not just words with a similar meaning). Only include connections you're genuinely confident are documented; leave the list empty rather than force a weak or speculative match.
 
-Attested quotes, citations, and confidence flags are sourced separately in a later pass — don't invent any of those here, just form/ipa/gloss/drift_type/siblings.`;
+Attested quotes, citations, and confidence flags are sourced separately in a later pass — don't invent any of those here, just form/ipa/gloss/drift_type/siblings.${buildGroundingPromptContext(grounding, headword)}`;
 
   const phase1 = await createAndParse<Phase1Response>(
     anthropic,
@@ -500,6 +511,57 @@ Attested quotes, citations, and confidence flags are sourced separately in a lat
     );
   }
 
+  // Modern IPA/gloss bypass: on an unambiguous kaikki headword (exactly one
+  // `words` row), the model's own answer for these two fields is discarded
+  // in favor of real local data, regardless of whether it followed the
+  // prompt's instruction to skip them -- correctness here shouldn't depend
+  // on the model's compliance. A homograph headword (>1 row) gets no bypass
+  // at all (see kaikki-grounding.ts's doc comment on why "which row's sense
+  // is THE modern sense" isn't decidable there).
+  let modernIpaSource: "local" | "model" = "model";
+  let modernGlossSource: "local" | "model" = "model";
+  if (grounding?.isUnambiguous && (grounding.modernIpa || grounding.modernGloss)) {
+    const localModernIpa = grounding.modernIpa;
+    // kaikki's raw gloss is a full dictionary definition, not Strata's 2-4
+    // word house style -- condense it via a cheap Haiku call rather than
+    // pasting it in directly (see shortenKaikkiGloss's doc comment).
+    let localModernGloss: string | null = null;
+    if (grounding.modernGloss) {
+      try {
+        localModernGloss = await shortenKaikkiGloss(grounding.modernGloss, headword);
+      } catch (err) {
+        console.error(`[flagship] "${headword}" modern gloss shortening failed, keeping phase-1 gloss:`, err);
+      }
+    }
+
+    const modernIdx = phase1.eras.findIndex((e) => e.era === "modern");
+    if (modernIdx >= 0) {
+      if (localModernIpa) {
+        phase1.eras[modernIdx].ipa = localModernIpa;
+        modernIpaSource = "local";
+      }
+      if (localModernGloss) {
+        phase1.eras[modernIdx].gloss = localModernGloss;
+        modernGlossSource = "local";
+      }
+    } else if (localModernIpa || localModernGloss) {
+      phase1.eras.push({
+        era: "modern",
+        form: headword,
+        ipa: localModernIpa ?? "",
+        gloss: localModernGloss ?? "",
+      });
+      if (localModernIpa) modernIpaSource = "local";
+      if (localModernGloss) modernGlossSource = "local";
+    }
+  }
+
+  console.log(
+    `[flagship] "${headword}" kaikki grounding: ${
+      grounding ? `${grounding.rowCount} row(s), unambiguous=${grounding.isUnambiguous}` : "no local kaikki entry"
+    }. Modern IPA: ${modernIpaSource}. Modern gloss: ${modernGlossSource}. Sibling candidates from local cross-ref: ${grounding?.siblingCandidates.length ?? 0}.`,
+  );
+
   // Phase 2: resolve each era's quote either from local evidence (free) or a
   // live-fetch fallback scoped to just that era (regenerateFlagshipEra).
   const eraDrafts: EraDraft[] = [];
@@ -515,7 +577,22 @@ Attested quotes, citations, and confidence flags are sourced separately in a lat
     const evidence = await findLocalEvidence(e.era, e.form, headword);
     if (evidence) {
       localCount++;
-      eraDrafts.push(await processEraDraft(e.era, toEraDraftResponse(e), headword));
+      // Ground this era's gloss in the evidence's own real translation
+      // rather than phase-1's tool-free recall, when one is available
+      // (Nerthus ships a translation per match; CMEPV/oepoetry don't).
+      let gloss = e.gloss;
+      if (evidence.quoteTranslation) {
+        try {
+          gloss = await extractGlossFromTranslation(evidence.quoteTranslation, e.form, e.era);
+          console.log(`[flagship] "${headword}" (${e.era}) gloss extracted from local evidence via Haiku: "${gloss}"`);
+        } catch (err) {
+          console.error(
+            `[flagship] "${headword}" (${e.era}) gloss extraction failed, keeping phase-1 gloss:`,
+            err,
+          );
+        }
+      }
+      eraDrafts.push(await processEraDraft(e.era, toEraDraftResponse({ ...e, gloss }), headword));
     } else {
       fallbackCount++;
       eraDrafts.push(await regenerateFlagshipEra(headword, e.era, opts?.signal));
