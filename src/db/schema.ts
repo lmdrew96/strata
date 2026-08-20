@@ -146,11 +146,31 @@ export type PendingEraRevision = {
   quote: string | null;
   quoteCitation: string | null;
   quoteTranslation: string | null;
+  quoteSourceUrl: string | null;
   gloss: string | null;
+  sourcingTier: SourcingTier;
   needsVerification: boolean;
   verificationNote: string | null;
   generatedAt: string;
 };
+
+// Where a quote's evidence actually came from -- replaces needs_verification
+// as the primary signal of how much a row can be trusted (that boolean was
+// one flag doing three incompatible jobs: unverified quote / no attestation
+// exists / modern-era n/a -- see CLAUDE.md's "sourcing tiers" section).
+// needsVerification stays alongside this, doing a narrower job: "does this
+// specific quote need a human fact-check," independent of tier.
+//
+// - green:  a passage was found in an ingested local corpus, or a
+//           citation-date-plausible local kaikki example -- deterministic,
+//           set in code from actual evidence, never from the model's
+//           self-report (see processEraDraft in flagship.ts).
+// - amber:  etymology asserted (a form/quote exists) but not confirmed
+//           against any ingested corpus -- Nae's real research queue.
+// - red:    no evidence this word was attested at this era at all.
+// - n_a:    modern era, no historical quote expected.
+export const sourcingTierEnum = pgEnum("sourcing_tier", ["green", "amber", "red", "n_a"]);
+export type SourcingTier = (typeof sourcingTierEnum.enumValues)[number];
 
 export const eraEnum = pgEnum("era", [
   "old_english",
@@ -249,6 +269,20 @@ export const flagshipEras = pgTable(
     // Modern English rendering of `quote`, for readers who can't parse the
     // original-spelling OE/ME/EME text unaided. Null whenever quote is null.
     quoteTranslation: text("quote_translation"),
+    // Where the quote's evidence came from -- see the sourcingTierEnum doc
+    // comment above. Nullable, no default: a pre-existing row that hasn't
+    // been through the tiered pipeline yet (generated or regenerated since
+    // ChaosPatch e3680b1a landed) is honestly untiered rather than guessed
+    // at via a raw backfill UPDATE -- it gets a real tier the next time
+    // generation touches it, same non-destructive path as any other content
+    // change (ChaosPatch 9d724e79).
+    sourcingTier: sourcingTierEnum("sourcing_tier"),
+    // A stable pointer to the quote's evidence, richer than a generic site
+    // URL (folds in the superseded ChaosPatch 8fcda3d8): "corpus:<source
+    // key>:<text id>[:<locator>]" for an ingested-corpus match, "kaikki:
+    // <headword>" for a date-gated kaikki match, or a real https:// URL if a
+    // human editor pastes one in by hand. Null whenever quote is null.
+    quoteSourceUrl: text("quote_source_url"),
     // Path (under /public) to a pre-generated pronunciation clip for this
     // era, e.g. "/audio/pronunciation/12-old_english.wav". Null for the
     // modern era (spoken client-side via the browser's TTS instead — see

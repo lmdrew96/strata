@@ -108,7 +108,7 @@ Order of resort, per era:
 
 | Era | Corpus | License | Notes |
 |---|---|---|---|
-| Old English | Nerthus UD treebank (ParCorOEv3 subset) | CC BY-SA 4.0 | Primary OE source. Lemma-tagged — match by lemma, not substring. ~55k words, 5 texts (Gospel of Mark, Ælfric homilies, Chronicle A, Orosius, Laws). Coverage is real but not exhaustive. |
+| Old English | Nerthus UD treebank (ParCorOEv3 subset) | CC BY-SA 4.0 | Primary OE source. Lemma-tagged — match by lemma, not substring. ~55k raw tokens per the dataset card; ingested search index is ~36k rows (one row per unique lemma per sentence — a repeated lemma collapses). 5 texts (Gospel of Mark, Ælfric homilies, Chronicle A, Orosius, Laws). Coverage is real but not exhaustive. |
 | Old English | OE poetry corpus (Andreas etc.) | Mixed — **OE text only** | Fills the poetry gap Nerthus (prose-only) misses. **Only the `original` column is usable** — the paired modern translations are someone else's uncleared scholarly work with a mismatched Apache-2.0 tag slapped on by a repackager. Never ingest or expose that translation column. |
 | Old English | DOEC (Dictionary of Old English Corpus) | "Academic Use" — unresolved | Fallback only, if Nerthus + poetry coverage proves insufficient. Full 3M-word OE record, but the license needs a UD librarian's confirmation before any public-facing use. Don't ingest until that's answered. |
 | Middle English | Corpus of Middle English Prose and Verse (U Michigan) | Public domain editions, openly distributed | Primary ME source. Includes the Wycliffite Bible. |

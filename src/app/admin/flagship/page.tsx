@@ -4,13 +4,17 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Header } from "../../Header";
 
+type SourcingTier = "green" | "amber" | "red" | "n_a";
+
 type PendingEraRevision = {
   form: string;
   ipa: string | null;
   quote: string | null;
   quoteCitation: string | null;
   quoteTranslation: string | null;
+  quoteSourceUrl: string | null;
   gloss: string | null;
+  sourcingTier: SourcingTier;
   needsVerification: boolean;
   verificationNote: string | null;
   generatedAt: string;
@@ -24,7 +28,9 @@ type FlagshipEra = {
   quote: string | null;
   quoteCitation: string | null;
   quoteTranslation: string | null;
+  quoteSourceUrl: string | null;
   gloss: string | null;
+  sourcingTier: SourcingTier | null;
   needsVerification: boolean;
   verificationNote: string | null;
   humanEdited: boolean;
@@ -68,6 +74,48 @@ const DRIFT_TYPES: DriftType[] = [
   "other",
 ];
 
+const TIER_LABELS: Record<SourcingTier, string> = {
+  green: "green",
+  amber: "amber",
+  red: "red",
+  n_a: "n/a",
+};
+
+const TIER_STYLES: Record<SourcingTier, string> = {
+  green: "bg-green-500/20 text-green-300",
+  amber: "bg-amber-500/20 text-amber-300",
+  red: "bg-red-500/20 text-red-300",
+  n_a: "bg-strata-parchment/10 text-strata-parchment/50",
+};
+
+// Amber sub-triage (ChaosPatch d9146072): amber became the dominant tier by
+// volume once green got restricted to structurally collision-proof matches
+// (e3680b1a's churl/boor fix), and it was hiding two very different jobs.
+// quote_source_url is the correct signal, not quote/quote_citation -- it's
+// set ONLY by an evidence-derived amber row (a corpus/lemma match that just
+// needs a sense-check), and stays null for a model-self-reported quote with
+// no captured source (which needs Nae to find the source herself -- much
+// closer in effort to a true gap than to a quick confirm, even though it
+// technically has quote text).
+type AmberBucket = "has_candidate" | "true_gap";
+
+function amberBucket(era: { sourcingTier: SourcingTier | null; quoteSourceUrl: string | null }): AmberBucket | null {
+  if (era.sourcingTier !== "amber") return null;
+  return era.quoteSourceUrl ? "has_candidate" : "true_gap";
+}
+
+const AMBER_BUCKET_LABELS: Record<AmberBucket, string> = {
+  has_candidate: "has candidate",
+  true_gap: "true gap",
+};
+
+const AMBER_BUCKET_STYLES: Record<AmberBucket, string> = {
+  has_candidate: "bg-strata-coral/20 text-strata-coral",
+  true_gap: "bg-strata-parchment/10 text-strata-parchment/50",
+};
+
+const TIER_ORDER: SourcingTier[] = ["green", "amber", "red", "n_a"];
+
 export default function FlagshipAdminPage() {
   const router = useRouter();
   const [words, setWords] = useState<FlagshipWord[]>([]);
@@ -76,6 +124,13 @@ export default function FlagshipAdminPage() {
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<FlagshipWord["status"] | "all">("all");
+  // Defaults to amber -- that's Nae's actual work queue (etymology asserted,
+  // no corpus/kaikki-confirmed quote yet). "all" shows everything.
+  const [tierFilter, setTierFilter] = useState<SourcingTier | "all">("amber");
+  // Only meaningful while tierFilter === "amber" -- lets the quick-confirm
+  // pass and the sit-down-research pass be worked as separate batches
+  // instead of interleaved (ChaosPatch d9146072).
+  const [amberSubFilter, setAmberSubFilter] = useState<AmberBucket | "all">("all");
 
   async function handleSignOut() {
     await fetch("/api/admin-logout", { method: "POST" });
@@ -146,13 +201,45 @@ export default function FlagshipAdminPage() {
     await loadWords();
   }
 
-  const filteredWords = words.filter((w) => {
-    if (statusFilter !== "all" && w.status !== statusFilter) return false;
-    if (searchQuery.trim() && !w.headword.toLowerCase().includes(searchQuery.trim().toLowerCase())) {
-      return false;
-    }
-    return true;
-  });
+  const filteredWords = words
+    .filter((w) => {
+      if (statusFilter !== "all" && w.status !== statusFilter) return false;
+      // A tier-narrowed view (the amber work queue, most importantly) is
+      // meant to surface undecided words -- approved/rejected words are
+      // done being reviewed, and can still legitimately carry an amber/red
+      // era (tier records evidence quality, not review status; see
+      // sourcingTierEnum's doc comment). Only hide them when statusFilter
+      // hasn't explicitly asked for that status.
+      if (
+        tierFilter !== "all" &&
+        statusFilter === "all" &&
+        (w.status === "approved" || w.status === "rejected")
+      ) {
+        return false;
+      }
+      if (tierFilter !== "all" && !w.eras.some((e) => e.sourcingTier === tierFilter)) return false;
+      if (
+        tierFilter === "amber" &&
+        amberSubFilter !== "all" &&
+        !w.eras.some((e) => amberBucket(e) === amberSubFilter)
+      ) {
+        return false;
+      }
+      if (searchQuery.trim() && !w.headword.toLowerCase().includes(searchQuery.trim().toLowerCase())) {
+        return false;
+      }
+      return true;
+    })
+    // While viewing the amber queue, surface the quick-confirm words first --
+    // ranked by how many true-gap eras they still carry, so a pure
+    // has-candidate word (0 true gaps) always sorts ahead of a mixed or
+    // all-true-gap one, letting Nae batch through the fast ones before
+    // sitting down with the real research pile.
+    .sort((a, b) => {
+      if (tierFilter !== "amber") return 0;
+      const trueGapCount = (w: FlagshipWord) => w.eras.filter((e) => amberBucket(e) === "true_gap").length;
+      return trueGapCount(a) - trueGapCount(b);
+    });
 
   return (
     <>
@@ -224,6 +311,40 @@ export default function FlagshipAdminPage() {
                 Rejected
               </option>
             </select>
+            <select
+              value={tierFilter}
+              onChange={(e) => setTierFilter(e.target.value as SourcingTier | "all")}
+              className="font-data rounded border border-strata-parchment/20 bg-strata-rosewood/20 px-3 py-2 text-sm text-strata-parchment"
+            >
+              <option value="amber" className="bg-strata-rosewood">
+                Amber (work queue)
+              </option>
+              <option value="all" className="bg-strata-rosewood">
+                All tiers
+              </option>
+              {TIER_ORDER.filter((t) => t !== "amber").map((t) => (
+                <option key={t} value={t} className="bg-strata-rosewood">
+                  {TIER_LABELS[t]}
+                </option>
+              ))}
+            </select>
+            {tierFilter === "amber" && (
+              <select
+                value={amberSubFilter}
+                onChange={(e) => setAmberSubFilter(e.target.value as AmberBucket | "all")}
+                className="font-data rounded border border-strata-parchment/20 bg-strata-rosewood/20 px-3 py-2 text-sm text-strata-parchment"
+              >
+                <option value="all" className="bg-strata-rosewood">
+                  Has candidate + true gap
+                </option>
+                <option value="has_candidate" className="bg-strata-rosewood">
+                  Has candidate only (quick pass)
+                </option>
+                <option value="true_gap" className="bg-strata-rosewood">
+                  True gap only (research pass)
+                </option>
+              </select>
+            )}
           </div>
 
           <div className="mt-6 space-y-6">
@@ -320,7 +441,11 @@ function WordCard({
       quote: "",
       quoteCitation: "",
       quoteTranslation: "",
+      quoteSourceUrl: "",
       gloss: "",
+      // Amber: a manually added era is Nae's own assertion, not corpus-
+      // confirmed -- same status a model-asserted-but-unconfirmed era gets.
+      sourcingTier: "amber",
       needsVerification: true,
       verificationNote: "Manually added — not yet verified.",
       humanEdited: true,
@@ -452,11 +577,37 @@ function WordCard({
             className="min-w-[220px] flex-1 rounded-md border border-strata-parchment/10 bg-strata-rosewood/20 p-3"
           >
             <div className={editing ? "flex flex-col gap-1.5" : "flex items-center justify-between gap-2"}>
-              <span className="font-data text-xs font-medium tracking-wide text-strata-parchment/40 uppercase">
+              <span className="font-data flex items-center gap-2 text-xs font-medium tracking-wide text-strata-parchment/40 uppercase">
                 {ERA_LABELS[era.era] ?? era.era}
+                {!editing && era.sourcingTier && (
+                  <span
+                    className={`normal-case ${TIER_STYLES[era.sourcingTier]} rounded px-1.5 py-0.5 text-xs font-medium`}
+                  >
+                    {TIER_LABELS[era.sourcingTier]}
+                  </span>
+                )}
+                {!editing &&
+                  amberBucket(era) && (
+                    <span
+                      className={`normal-case ${AMBER_BUCKET_STYLES[amberBucket(era) as AmberBucket]} rounded px-1.5 py-0.5 text-xs font-medium`}
+                    >
+                      {AMBER_BUCKET_LABELS[amberBucket(era) as AmberBucket]}
+                    </span>
+                  )}
               </span>
               {editing ? (
                 <div className="flex flex-wrap items-center gap-2">
+                  <select
+                    value={era.sourcingTier ?? "amber"}
+                    onChange={(e) => updateEra(era.id, { sourcingTier: e.target.value as SourcingTier })}
+                    className={`font-data rounded border border-strata-parchment/20 px-1.5 py-0.5 text-xs normal-case ${TIER_STYLES[era.sourcingTier ?? "amber"]}`}
+                  >
+                    {TIER_ORDER.map((t) => (
+                      <option key={t} value={t} className="bg-strata-rosewood text-strata-parchment">
+                        {TIER_LABELS[t]}
+                      </option>
+                    ))}
+                  </select>
                   <label className="font-data flex items-center gap-1 text-xs text-amber-400">
                     <input
                       type="checkbox"
@@ -509,6 +660,12 @@ function WordCard({
                   not overwritten.
                 </p>
                 <div className="font-data mt-1.5 space-y-0.5 text-xs text-strata-parchment/70">
+                  <p>
+                    <span className="text-strata-parchment/40">tier:</span>{" "}
+                    <span className={`rounded px-1 ${TIER_STYLES[era.pendingRevision.sourcingTier]}`}>
+                      {TIER_LABELS[era.pendingRevision.sourcingTier]}
+                    </span>
+                  </p>
                   <p>
                     <span className="text-strata-parchment/40">form:</span> {era.pendingRevision.form}
                   </p>
@@ -592,6 +749,12 @@ function WordCard({
                   placeholder="citation"
                   className="w-full rounded border border-strata-parchment/20 bg-strata-rosewood/20 px-1.5 py-1 text-xs text-strata-parchment"
                 />
+                <input
+                  value={era.quoteSourceUrl ?? ""}
+                  onChange={(e) => updateEra(era.id, { quoteSourceUrl: e.target.value })}
+                  placeholder="source (corpus:..., kaikki:..., or a URL)"
+                  className="w-full rounded border border-strata-parchment/20 bg-strata-rosewood/20 px-1.5 py-1 text-xs text-strata-parchment/60"
+                />
                 <div className="flex gap-1">
                   <input
                     value={era.quoteTranslation ?? ""}
@@ -635,6 +798,23 @@ function WordCard({
                 {era.quoteTranslation && (
                   <p className="font-data mt-1 text-xs text-strata-parchment/40">
                     “{era.quoteTranslation}”
+                  </p>
+                )}
+                {era.quoteSourceUrl && (
+                  <p className="font-data mt-1 text-xs text-strata-parchment/30">
+                    source:{" "}
+                    {era.quoteSourceUrl.startsWith("http") ? (
+                      <a
+                        href={era.quoteSourceUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="underline hover:text-strata-parchment/60"
+                      >
+                        {era.quoteSourceUrl}
+                      </a>
+                    ) : (
+                      era.quoteSourceUrl
+                    )}
                   </p>
                 )}
               </>

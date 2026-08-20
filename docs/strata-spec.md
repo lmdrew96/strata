@@ -16,8 +16,10 @@ Other languages (Latin, Old French, Greek, etc.) appear only when a word's actua
 
 ## Content Strategy: Two-Tier
 
-**Flagship words (100–300 at launch)**
+**Flagship words (selected by sourcing tier, not by word count)**
 Hand-curated. Full treatment: quotes per era, form evolution, semantic drift narrative, and reconstructed pronunciation (see below). Built via a Claude-API-assisted research + human review pipeline, reusing the shape of Sensible's curation workflow.
+
+Every era of every flagship word resolves to a sourcing tier: **green** (attested quote confirmed from an ingested local corpus), **amber** (etymology asserted, no attested quote in open sources — this is Nae's real research, not a defect), **red** (no evidence of attestation at this era), or **n/a** (modern era, no historical quote expected). A candidate headword list is probed against the local corpora *before* generation — offline, no API cost — and the launch batch is built from whatever probes green/amber, not from an arbitrary count. Candidates that probe all-red get deferred rather than force-researched. There's a soft floor (~40 words) so a launch batch isn't thin, but no artificial ceiling — if 80 candidates probe well, ship 80. The flagship pool grows over successive batches under the same rule rather than stopping at a fixed number.
 
 **Long tail (everything else)**
 Auto-generated from Wiktionary/kaikki.org structured etymology data. Etymology chain, form changes, and quotes where the source data supports them. No semantic drift narrative unless the underlying data genuinely supports one — lighter, but still real and searchable.
@@ -53,7 +55,7 @@ This feature is scoped to flagship words only at launch — it requires real per
 
 ## Landing Page Features
 
-**Word of the Week** (not day) — matches the depth of what Strata serves. A daily cadence would burn through the 100–300 flagship word pool in under a year and pressure the team toward shallow long-tail entries. Weekly is sustainable and still meaningfully differentiated from every "word of the day" tool, which is uniformly shallow.
+**Word of the Week** (not day) — matches the depth of what Strata serves. A daily cadence would burn through the flagship word pool in under a year and pressure the team toward shallow long-tail entries. Weekly is sustainable and still meaningfully differentiated from every "word of the day" tool, which is uniformly shallow.
 
 **Matching game (v1): OE → Modern card match** — memory-pairs style, flip cards, match the Old English form to its modern descendant. Sourced entirely from existing flagship word data — no separate content pipeline required. Short session, immediate feedback, low stakes — fits neurodivergent-friendly design patterns (quick engagement without becoming a time-sink).
 

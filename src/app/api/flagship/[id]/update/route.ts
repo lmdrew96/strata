@@ -1,7 +1,7 @@
 import { eq, inArray } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { db } from "../../../../../db";
-import { type Era, flagshipEras, flagshipWords } from "../../../../../db/schema";
+import { type Era, type SourcingTier, flagshipEras, flagshipWords } from "../../../../../db/schema";
 
 type EraPayload = {
   id: number;
@@ -11,7 +11,9 @@ type EraPayload = {
   quote: string | null;
   quoteCitation: string | null;
   quoteTranslation: string | null;
+  quoteSourceUrl: string | null;
   gloss: string | null;
+  sourcingTier: SourcingTier | null;
   needsVerification: boolean;
   verificationNote: string | null;
   orderIndex: number;
@@ -61,7 +63,9 @@ export async function POST(
         quote: era.quote || null,
         quoteCitation: era.quoteCitation || null,
         quoteTranslation: era.quoteTranslation || null,
+        quoteSourceUrl: era.quoteSourceUrl || null,
         gloss: era.gloss || null,
+        sourcingTier: era.sourcingTier,
         needsVerification: era.needsVerification,
         verificationNote: era.needsVerification ? era.verificationNote || null : null,
         humanEdited: true,
@@ -89,7 +93,9 @@ export async function POST(
         quote: era.quote || null,
         quoteCitation: era.quoteCitation || null,
         quoteTranslation: era.quoteTranslation || null,
+        quoteSourceUrl: era.quoteSourceUrl || null,
         gloss: era.gloss || null,
+        sourcingTier: era.sourcingTier,
         needsVerification: era.needsVerification,
         verificationNote: era.needsVerification ? era.verificationNote || null : null,
         // A manual save is the human review step -- mark the row protected

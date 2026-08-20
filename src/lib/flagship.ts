@@ -3,12 +3,14 @@ import { eq } from "drizzle-orm";
 import { db } from "../db";
 import { createAndParse } from "./anthropic-resume";
 import { ERA_DATES, ERA_LABELS } from "./eras";
+import { findLocalEvidence } from "./sourcing-tier";
 import {
   type DriftType,
   type Era,
   type NewFlagshipEra,
   type NewFlagshipSibling,
   type PendingEraRevision,
+  type SourcingTier,
   flagshipEras,
   flagshipSiblings,
   flagshipWords,
@@ -148,7 +150,11 @@ const FLAGSHIP_SCHEMA = {
   additionalProperties: false,
 } as const;
 
-type EraDraftResponse = {
+// Exported so scripts/backfill-sourcing-tier.ts can reuse processEraDraft's
+// tier-assignment logic directly instead of re-deriving it -- an offline
+// backfill just needs to construct this shape from an existing DB row
+// (mapping camelCase -> snake_case) rather than from a fresh model response.
+export type EraDraftResponse = {
   era: Era;
   form: string;
   ipa: string;
@@ -166,52 +172,157 @@ type FlagshipDraftResponse = {
   sibling_words: { word: string; shared_ancestor: string }[];
 };
 
-type EraDraft = {
+export type EraDraft = {
   era: Era;
   form: string;
   ipa: string;
   quote: string | null;
   quoteCitation: string | null;
   quoteTranslation: string | null;
+  quoteSourceUrl: string | null;
   gloss: string;
+  sourcingTier: SourcingTier;
   needsVerification: boolean;
   verificationNote: string | null;
 };
 
 /**
- * Applies the code-side verification override (form/quote mismatch) and
- * snake_case -> camelCase mapping shared by full-word generation and
- * single-era regeneration. `era` is passed explicitly rather than trusted
- * from `e.era` when the caller already knows which era it asked for.
+ * Assigns this era's sourcing tier and applies the code-side verification
+ * overrides shared by full-word generation and single-era regeneration.
+ * `era` is passed explicitly rather than trusted from `e.era` when the
+ * caller already knows which era it asked for; `headword` is needed
+ * separately from `e.form` because local evidence lookup is keyed
+ * differently per era -- OE/ME corpora are searched by the era's historical
+ * spelling (`e.form`), but the kaikki EME fallback is keyed by the modern
+ * headword (kaikki examples aren't era-tagged at all).
+ *
+ * Tier is set from whether local/corpus evidence was actually found (see
+ * findLocalEvidence), never from the model's own confidence -- that's the
+ * whole point of ChaosPatch e3680b1a. When evidence is found, it REPLACES
+ * whatever quote the model proposed: a deterministic corpus/kaikki hit is
+ * more trustworthy than anything recalled from memory or live-fetched.
+ *
+ * Green requires the match to be TRUSTED, not just found (Nae's correction,
+ * 2026-08-20): a hit that still needs a human to confirm it's the right
+ * sense -- not a homograph, proper noun, or editorial-apparatus false
+ * positive -- isn't a few-second spot-check anymore, it's real research.
+ * That's amber's job. An untrusted match still overwrites the quote (it's a
+ * real, useful starting point for that research), it just doesn't get
+ * labeled "confirmed."
  */
-function processEraDraft(era: Era, e: EraDraftResponse): EraDraft {
-  const hasQuote = e.quote.trim().length > 0;
+export async function processEraDraft(era: Era, e: EraDraftResponse, headword: string): Promise<EraDraft> {
+  const modelHasQuote = e.quote.trim().length > 0;
+  const modelNote = e.verification_note.trim() || null;
+
+  let quote = modelHasQuote ? e.quote : null;
+  let quoteCitation = modelHasQuote ? e.quote_citation : null;
+  let quoteTranslation = modelHasQuote ? e.quote_translation : null;
+  let quoteSourceUrl: string | null = null;
+  let tier: SourcingTier;
+  let evidenceFound = false;
+  let evidenceTrusted = false;
+
+  if (era === "modern") {
+    tier = "n_a";
+  } else {
+    const evidence = await findLocalEvidence(era, e.form, headword);
+    if (evidence) {
+      evidenceFound = true;
+      evidenceTrusted = evidence.trusted;
+      quote = evidence.quote;
+      quoteCitation = evidence.quoteCitation;
+      quoteTranslation = evidence.quoteTranslation;
+      quoteSourceUrl = evidence.quoteSourceUrl;
+      // Only a match that can't collide with an unrelated homograph or
+      // proper noun BY CONSTRUCTION earns green (currently: the date-gated
+      // kaikki match only). A CMEPV/oepoetry substring hit or a Nerthus
+      // lemma tag is real evidence the pipeline found *something*, but not
+      // proof it's the right something -- see findLocalEvidence's doc
+      // comment for the churl/"Ceorl aldormon" example that proved this.
+      tier = evidence.trusted ? "green" : "amber";
+    } else if (modelHasQuote) {
+      // The model claims a quote (typically from a live Bosworth-Toller/MED/
+      // EEBO fetch), but nothing in our ingested corpora or kaikki confirms
+      // it -- real research territory, not a machine-verified attestation.
+      tier = "amber";
+    } else if (e.form.trim().length === 0) {
+      // No form/ipa/quote at all -- per regenerateFlagshipEra's prompt,
+      // this specifically means no evidence the word existed at this era,
+      // not just an unconfirmed quote.
+      tier = "red";
+    } else {
+      // Form/ipa/gloss present -- the word is understood to have existed
+      // at this era, just without a confirmed quote. Etymology asserted,
+      // no attestation: the amber case CLAUDE.md describes.
+      tier = "amber";
+    }
+  }
+
+  const hasQuote = !!quote && quote.trim().length > 0;
+
   // The model has produced a form that doesn't match the spelling in its
-  // own quote (e.g. form "awfull" for a quote reading "...awefull...").
-  // Prompting alone didn't fully prevent this, so force review whenever
-  // it recurs rather than trusting the two fields to agree.
-  const formMismatch = hasQuote && !e.quote.toLowerCase().includes(e.form.toLowerCase());
-  // Don't trust the model's self-report once there's no quote to verify —
-  // seen it mark an invented, uncited "quote" as needs_verification=false.
-  const needsVerification = hasQuote ? e.needs_verification || formMismatch : false;
-  // The mismatch note (code-detected, always accurate) leads; the model's
-  // own note follows when it gave one -- either can be absent on its own
-  // (formMismatch without the model flagging anything, or vice versa).
+  // own quote (e.g. form "awfull" for a quote reading "...awefull..."). Only
+  // meaningful when we're trusting the MODEL's own quote -- an evidence-
+  // sourced quote's relationship to `form` is a separate, expected kind of
+  // variance (e.g. a treebank lemma vs. an inflected surface form in the
+  // actual sentence), not a model self-consistency bug, and gets its own
+  // sense-check note below instead.
+  const formMismatch =
+    !evidenceFound && hasQuote && quote !== null && !quote.toLowerCase().includes(e.form.toLowerCase());
   const mismatchNote = formMismatch
     ? `Form "${e.form}" doesn't appear in the quote as spelled.`
     : null;
-  const modelNote = e.verification_note.trim() || null;
+
+  // Don't trust the model's self-report once there's no quote to verify —
+  // seen it mark an invented, uncited "quote" as needs_verification=false.
+  let needsVerification = hasQuote ? e.needs_verification || formMismatch : false;
+  let forcedNote: string | null = null;
+
+  if (evidenceFound && evidenceTrusted) {
+    // Deterministic and sense-safe -- the model's stale opinion about the
+    // quote we just replaced isn't relevant anymore.
+    needsVerification = false;
+  } else if (evidenceFound) {
+    // Untrusted match (CMEPV/oepoetry substring, or Nerthus lemma) -- 11/31
+    // raw CMEPV hits in the 2026-08-20 ME backfill were false positives
+    // (editorial apparatus, homograph collisions), and building this
+    // pipeline caught a live Nerthus example (churl/"ceorl" matching an
+    // ealdorman's proper name, not the common noun). Route it through a
+    // human sense-check rather than auto-trusting it.
+    needsVerification = true;
+    forcedNote =
+      "Matched a local corpus/kaikki entry for this form, but the sense isn't confirmed — spot-check for a homograph collision, proper noun, or editorial-apparatus false positive before trusting.";
+  } else if ((tier === "amber" || tier === "red") && hasQuote && !e.needs_verification) {
+    // Fabrication-shape check: a non-green tier means nothing locally backs
+    // this quote up, so a model that's still reporting high confidence is a
+    // mismatch worth flagging on its own, regardless of formMismatch.
+    needsVerification = true;
+    forcedNote = `Tier is ${tier} (no local corpus/kaikki confirmation) but the model reported high confidence in this quote — verify it wasn't fabricated or recalled from memory rather than genuinely sourced.`;
+  }
+
   const verificationNote = needsVerification
-    ? [mismatchNote, modelNote].filter(Boolean).join(" ") || null
+    ? [mismatchNote, forcedNote, modelNote].filter(Boolean).join(" ") || null
     : null;
+
+  // Assertion: green tier requires the quote it claims to confirm.
+  // findLocalEvidence only ever returns evidence carrying real quote text,
+  // so this should be structurally impossible -- throw loudly rather than
+  // silently ship a broken row (this is what makes tier assignment
+  // testable, per ChaosPatch e3680b1a's acceptance criteria).
+  if (tier === "green" && !hasQuote) {
+    throw new Error(`Assertion failed: green tier with empty quote for "${headword}" (${era}).`);
+  }
+
   return {
     era,
     form: e.form,
     ipa: e.ipa,
-    quote: hasQuote ? e.quote : null,
-    quoteCitation: hasQuote ? e.quote_citation : null,
-    quoteTranslation: hasQuote ? e.quote_translation : null,
+    quote,
+    quoteCitation,
+    quoteTranslation,
+    quoteSourceUrl,
     gloss: e.gloss,
+    sourcingTier: tier,
     needsVerification,
     verificationNote,
   };
@@ -361,7 +472,7 @@ Be honest about your confidence: set needs_verification to true for any quote or
   const existingByEra = new Map(existingEras.map((e) => [e.era, e]));
 
   for (const e of parsed.eras) {
-    const draft = processEraDraft(e.era, e);
+    const draft = await processEraDraft(e.era, e, headword);
     const existingRow = existingByEra.get(e.era);
     const orderIndex = ERAS.indexOf(e.era);
 
@@ -375,7 +486,9 @@ Be honest about your confidence: set needs_verification to true for any quote or
         quote: draft.quote,
         quoteCitation: draft.quoteCitation,
         quoteTranslation: draft.quoteTranslation,
+        quoteSourceUrl: draft.quoteSourceUrl,
         gloss: draft.gloss,
+        sourcingTier: draft.sourcingTier,
         needsVerification: draft.needsVerification,
         verificationNote: draft.verificationNote,
         generatedAt: new Date().toISOString(),
@@ -396,7 +509,9 @@ Be honest about your confidence: set needs_verification to true for any quote or
           quote: draft.quote,
           quoteCitation: draft.quoteCitation,
           quoteTranslation: draft.quoteTranslation,
+          quoteSourceUrl: draft.quoteSourceUrl,
           gloss: draft.gloss,
+          sourcingTier: draft.sourcingTier,
           needsVerification: draft.needsVerification,
           verificationNote: draft.verificationNote,
           humanEdited: false,
@@ -499,7 +614,7 @@ Be honest about your confidence: set needs_verification to true for any quote or
     throw new Error(`No parsed output regenerating ${era} for "${headword}"`);
   }
 
-  return processEraDraft(era, parsed);
+  return processEraDraft(era, parsed, headword);
 }
 
 export async function approveFlagshipWord(id: number): Promise<void> {
@@ -536,7 +651,9 @@ export async function acceptEraRevision(eraId: number): Promise<void> {
       quote: revision.quote,
       quoteCitation: revision.quoteCitation,
       quoteTranslation: revision.quoteTranslation,
+      quoteSourceUrl: revision.quoteSourceUrl,
       gloss: revision.gloss,
+      sourcingTier: revision.sourcingTier,
       needsVerification: revision.needsVerification,
       verificationNote: revision.verificationNote,
       pendingRevision: null,
