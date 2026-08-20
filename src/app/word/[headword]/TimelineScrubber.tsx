@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { FlagshipEra } from "../../../db/schema";
+import { shortenCitation } from "../../../lib/citation-format";
 import { ERA_COLORS, ERA_DATES, ERA_LABELS } from "../../../lib/eras";
 
 type Sibling = {
@@ -139,7 +140,7 @@ export function TimelineScrubber({ headword, driftType, eras, siblings }: Props)
             &ldquo;{active.quote}&rdquo;
             {active.quoteCitation && (
               <span className="font-data mt-2 block text-xs tracking-wide text-strata-parchment/50 not-italic">
-                — {active.quoteCitation}
+                — {shortenCitation(active.quoteCitation)}
               </span>
             )}
           </p>

@@ -57,6 +57,8 @@ export type CorpusHit = {
   text: string;
   textId: string;
   textTitle: string;
+  textAuthor: string | null;
+  textDate: string | null;
   locator: string | null;
   translation: string | null;
 };
@@ -77,6 +79,8 @@ export async function findCorpusSubstringMatch(
       text: corpusPassages.text,
       textId: corpusPassages.textId,
       textTitle: corpusPassages.textTitle,
+      textAuthor: corpusPassages.textAuthor,
+      textDate: corpusPassages.textDate,
       locator: corpusPassages.locator,
       translation: corpusPassages.translation,
     })
@@ -100,6 +104,8 @@ export async function findCorpusLemmaMatch(
       text: corpusPassages.text,
       textId: corpusPassages.textId,
       textTitle: corpusPassages.textTitle,
+      textAuthor: corpusPassages.textAuthor,
+      textDate: corpusPassages.textDate,
       locator: corpusPassages.locator,
       translation: corpusPassages.translation,
     })

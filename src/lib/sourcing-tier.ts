@@ -14,6 +14,7 @@ import { and, eq } from "drizzle-orm";
 import { db } from "../db";
 import type { Era } from "../db/schema";
 import { words } from "../db/schema";
+import { formatCorpusCitation, shortenCitation } from "./citation-format";
 import { extractSnippet, findCorpusLemmaMatch, findCorpusSubstringMatch } from "./corpus-search";
 
 export type LocalEvidence = {
@@ -76,7 +77,7 @@ async function findEmeKaikkiEvidence(headword: string): Promise<LocalEvidence | 
 
   return {
     quote: best.text,
-    quoteCitation: best.ref,
+    quoteCitation: shortenCitation(best.ref),
     quoteTranslation: null,
     quoteSourceUrl: `kaikki:${headword}`,
     trusted: true,
@@ -101,7 +102,7 @@ export async function findLocalEvidence(
     if (lemmaHit) {
       return {
         quote: lemmaHit.text,
-        quoteCitation: `${lemmaHit.textTitle}${lemmaHit.locator ? `, ${lemmaHit.locator}` : ""}`,
+        quoteCitation: formatCorpusCitation(lemmaHit),
         quoteTranslation: lemmaHit.translation,
         quoteSourceUrl: `corpus:nerthus:${lemmaHit.textId}${lemmaHit.locator ? `:${lemmaHit.locator}` : ""}`,
         trusted: false,
@@ -114,7 +115,7 @@ export async function findLocalEvidence(
       if (snippet) {
         return {
           quote: snippet,
-          quoteCitation: `${poetryHit.textTitle}${poetryHit.locator ? `, ${poetryHit.locator}` : ""}`,
+          quoteCitation: formatCorpusCitation(poetryHit),
           quoteTranslation: null,
           quoteSourceUrl: `corpus:oepoetry:${poetryHit.textId}`,
           trusted: false,
@@ -131,7 +132,7 @@ export async function findLocalEvidence(
     if (!snippet) return null;
     return {
       quote: snippet,
-      quoteCitation: `${hit.textTitle}${hit.locator ? `, ${hit.locator}` : ""}`,
+      quoteCitation: formatCorpusCitation(hit),
       quoteTranslation: null,
       quoteSourceUrl: `corpus:cmepv:${hit.textId}`,
       trusted: false,

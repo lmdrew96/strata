@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { shortenCitation } from "../../../lib/citation-format";
 import { Header } from "../../Header";
 
 type SourcingTier = "green" | "amber" | "red" | "n_a";
@@ -770,7 +771,10 @@ function WordCard({
                     <p className="font-body-serif italic">
                       &ldquo;{era.pendingRevision.quote}&rdquo;
                       {era.pendingRevision.quoteCitation && (
-                        <span className="not-italic"> — {era.pendingRevision.quoteCitation}</span>
+                        <span className="not-italic">
+                          {" "}
+                          — {shortenCitation(era.pendingRevision.quoteCitation)}
+                        </span>
                       )}
                     </p>
                   )}
@@ -888,7 +892,7 @@ function WordCard({
                   <p className="font-body-serif mt-2 text-xs text-strata-parchment/60 italic">
                     &ldquo;{era.quote}&rdquo;
                     {era.quoteCitation && (
-                      <span className="not-italic"> — {era.quoteCitation}</span>
+                      <span className="not-italic"> — {shortenCitation(era.quoteCitation)}</span>
                     )}
                   </p>
                 )}

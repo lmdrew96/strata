@@ -75,7 +75,7 @@ const ERA_ITEM_SCHEMA = {
     quote_citation: {
       type: "string",
       description:
-        "Source of the quote (author, work, approximate date). Leave as an empty string whenever quote is empty.",
+        'Exactly three comma-separated fields: "Author, Work, Date" -- e.g. "Chaucer, The Knight\'s Tale, c. 1390". For an anonymous or scriptural work with no individual author, use the work/edition name as the first field and the specific passage as the second, e.g. "King James Bible, Matthew 19:19, 1611". No publisher, place, page numbers, or other bibliographic detail -- just those three fields. Leave as an empty string whenever quote is empty.',
     },
     quote_translation: {
       type: "string",
@@ -660,7 +660,7 @@ Provide:
 ${
   era === "modern"
     ? "- The modern stage does not need a quote — an everyday word's current usage doesn't have a single notable citation the way an archaic form does. Leave quote and quote_citation empty unless a specific, real, well-known citation is genuinely worth including. Never invent an illustrative example sentence and present it as a quote."
-    : "- A real attested quote using the word at this stage, in its original spelling, with a citation (author, work, approximate date), plus a plain modern English rendering of that same quote so a reader who can't parse the original spelling still gets the sentence"
+    : '- A real attested quote using the word at this stage, in its original spelling, with a citation in the exact form "Author, Work, Date" (see quote_citation\'s own field description for the anonymous/scriptural-work case), plus a plain modern English rendering of that same quote so a reader who can\'t parse the original spelling still gets the sentence'
 }
 
 The form field and the quote must never disagree. When there's a quote, the form you give must be the exact spelling used in that quote — not a separately-chosen "typical" spelling. Pick the quote first, then read the form off of it.
