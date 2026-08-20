@@ -84,7 +84,7 @@ const TIER_LABELS: Record<SourcingTier, string> = {
 const TIER_STYLES: Record<SourcingTier, string> = {
   green: "bg-green-500/20 text-green-300",
   amber: "bg-amber-500/20 text-amber-300",
-  red: "bg-red-500/20 text-red-300",
+  red: "bg-strata-roseflare/20 text-strata-roseflare",
   n_a: "bg-strata-parchment/10 text-strata-parchment/50",
 };
 
@@ -110,8 +110,8 @@ const AMBER_BUCKET_LABELS: Record<AmberBucket, string> = {
 };
 
 const AMBER_BUCKET_STYLES: Record<AmberBucket, string> = {
-  has_candidate: "bg-strata-coral/20 text-strata-coral",
-  true_gap: "bg-strata-parchment/10 text-strata-parchment/50",
+  has_candidate: "bg-amber-500/20 text-amber-300",
+  true_gap: "bg-strata-coral/20 text-strata-coral",
 };
 
 const TIER_ORDER: SourcingTier[] = ["green", "amber", "red", "n_a"];
@@ -314,13 +314,13 @@ export default function FlagshipAdminPage() {
           </form>
           {error && <p className="mt-2 text-sm text-red-400">{error}</p>}
 
-          <div className="mt-6 flex gap-2">
+          <div className="mt-6 flex flex-wrap gap-2">
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search headwords…"
-              className="font-data flex-1 rounded border border-strata-parchment/20 bg-strata-rosewood/20 px-3 py-2 text-sm text-strata-parchment placeholder:text-strata-parchment/40 focus:border-strata-coral/50 focus:outline-none"
+              className="font-data min-w-[160px] flex-1 rounded border border-strata-parchment/20 bg-strata-rosewood/20 px-3 py-2 text-sm text-strata-parchment placeholder:text-strata-parchment/40 focus:border-strata-coral/50 focus:outline-none"
             />
             <select
               value={statusFilter}
@@ -640,10 +640,14 @@ function WordCard({
             key={era.id}
             className="min-w-[220px] flex-1 rounded-md border border-strata-parchment/10 bg-strata-rosewood/20 p-3"
           >
-            <div className={editing ? "flex flex-col gap-1.5" : "flex items-center justify-between gap-2"}>
-              <span className="font-data flex items-center gap-2 text-xs font-medium tracking-wide text-strata-parchment/40 uppercase">
+            <div className={editing ? "flex flex-col gap-1.5" : "flex items-start justify-between gap-2"}>
+              <span className="font-data flex flex-wrap items-center gap-1.5 text-xs font-medium tracking-wide text-strata-parchment/40 uppercase">
                 {ERA_LABELS[era.era] ?? era.era}
-                {!editing && era.sourcingTier && (
+                {/* The amber-tier badge is replaced by its bucket badge below --
+                    "has candidate" (amber) / "true gap" (orange) already carries
+                    both the tier and the finer-grained color/severity distinction,
+                    so showing a plain "amber" pill alongside it would be redundant. */}
+                {!editing && era.sourcingTier && era.sourcingTier !== "amber" && (
                   <span
                     className={`normal-case ${TIER_STYLES[era.sourcingTier]} rounded px-1.5 py-0.5 text-xs font-medium`}
                   >
