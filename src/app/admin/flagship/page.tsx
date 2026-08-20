@@ -116,6 +116,27 @@ const AMBER_BUCKET_STYLES: Record<AmberBucket, string> = {
 
 const TIER_ORDER: SourcingTier[] = ["green", "amber", "red", "n_a"];
 
+// Collapses quoteSourceUrl's three documented shapes (see schema.ts's doc
+// comment) down to a single scannable word -- the full "corpus:nerthus:
+// MARK:MARK.006.014.001." locator is citation detail that belongs in
+// quoteCitation, not repeated here.
+function sourceLabel(value: string): string {
+  if (value.startsWith("http")) {
+    try {
+      return new URL(value).hostname.replace(/^www\./, "");
+    } catch {
+      return value;
+    }
+  }
+  if (value.startsWith("corpus:")) {
+    return value.split(":")[1] ?? value;
+  }
+  if (value.startsWith("kaikki:")) {
+    return "kaikki";
+  }
+  return value;
+}
+
 export default function FlagshipAdminPage() {
   const router = useRouter();
   const [words, setWords] = useState<FlagshipWord[]>([]);
@@ -886,10 +907,10 @@ function WordCard({
                         rel="noreferrer"
                         className="underline hover:text-strata-parchment/60"
                       >
-                        {era.quoteSourceUrl}
+                        {sourceLabel(era.quoteSourceUrl)}
                       </a>
                     ) : (
-                      era.quoteSourceUrl
+                      sourceLabel(era.quoteSourceUrl)
                     )}
                   </p>
                 )}
