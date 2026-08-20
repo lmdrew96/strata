@@ -24,13 +24,21 @@ export function Header() {
   }
 
   return (
-    <header className="flex w-full items-center justify-between gap-4 bg-strata-teal px-6 py-4">
+    <header className="flex w-full flex-wrap items-center justify-between gap-4 bg-strata-teal px-6 py-4">
       <Link
         href="/"
         className="font-data text-xs tracking-[0.3em] text-strata-parchment/70 uppercase transition-colors hover:text-strata-parchment"
       >
         Strata
       </Link>
+      <nav className="flex items-center gap-4">
+        <Link
+          href="/browse"
+          className="font-data text-xs tracking-[0.2em] text-strata-parchment/60 uppercase transition-colors hover:text-strata-parchment"
+        >
+          Browse
+        </Link>
+      </nav>
       <form onSubmit={handleSubmit} className="flex items-center gap-2">
         <input
           type="text"
