@@ -138,6 +138,7 @@ export const flagshipStatusEnum = pgEnum("flagship_status", [
   "approved",
   "rejected",
 ]);
+export type FlagshipStatus = (typeof flagshipStatusEnum.enumValues)[number];
 // A machine-proposed replacement for a protected flagshipEras row -- see
 // flagshipEras.pendingRevision below.
 export type PendingEraRevision = {

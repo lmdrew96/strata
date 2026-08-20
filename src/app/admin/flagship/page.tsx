@@ -214,6 +214,15 @@ export default function FlagshipAdminPage() {
     await loadWords();
   }
 
+  async function handleStatusChange(id: number, status: FlagshipWord["status"]) {
+    await fetch(`/api/flagship/${id}/status`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status }),
+    });
+    await loadWords();
+  }
+
   const filteredWords = words
     .filter((w) => {
       if (statusFilter !== "all" && w.status !== statusFilter) return false;
@@ -377,6 +386,7 @@ export default function FlagshipAdminPage() {
                 word={word}
                 onApprove={() => handleApprove(word.id)}
                 onReject={() => handleReject(word.id)}
+                onStatusChange={(status) => handleStatusChange(word.id, status)}
                 onSaved={loadWords}
               />
             ))}
@@ -397,15 +407,19 @@ export default function FlagshipAdminPage() {
   );
 }
 
+const STATUSES: FlagshipWord["status"][] = ["pending", "draft", "approved", "rejected"];
+
 function WordCard({
   word,
   onApprove,
   onReject,
+  onStatusChange,
   onSaved,
 }: {
   word: FlagshipWord;
   onApprove: () => void;
   onReject: () => void;
+  onStatusChange: (status: FlagshipWord["status"]) => void;
   onSaved: () => Promise<void>;
 }) {
   const [editing, setEditing] = useState(false);
@@ -570,6 +584,20 @@ function WordCard({
         </h2>
         <div className="flex items-center gap-2">
           <StatusBadge status={word.status} />
+          {!editing && (
+            <select
+              value={word.status}
+              onChange={(e) => onStatusChange(e.target.value as FlagshipWord["status"])}
+              aria-label="Change status"
+              className="font-data rounded border border-strata-parchment/20 bg-strata-rosewood/20 px-1.5 py-1 text-xs text-strata-parchment/60"
+            >
+              {STATUSES.map((s) => (
+                <option key={s} value={s} className="bg-strata-rosewood">
+                  {s}
+                </option>
+              ))}
+            </select>
+          )}
           {!editing && (
             <button
               onClick={startEditing}

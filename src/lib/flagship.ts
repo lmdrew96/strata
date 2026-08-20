@@ -7,6 +7,7 @@ import { findLocalEvidence } from "./sourcing-tier";
 import {
   type DriftType,
   type Era,
+  type FlagshipStatus,
   type NewFlagshipEra,
   type NewFlagshipSibling,
   type PendingEraRevision,
@@ -731,6 +732,21 @@ export async function rejectFlagshipWord(id: number): Promise<void> {
   await db
     .update(flagshipWords)
     .set({ status: "rejected", updatedAt: new Date() })
+    .where(eq(flagshipWords.id, id));
+}
+
+// Lets the admin UI move a word to any status directly (e.g. back to draft
+// after approving by mistake) instead of being stuck once approved/rejected
+// (ChaosPatch 2a0f9c55). approvedAt tracks only the current approved state,
+// so it's cleared on any transition away from "approved".
+export async function setFlagshipWordStatus(id: number, status: FlagshipStatus): Promise<void> {
+  await db
+    .update(flagshipWords)
+    .set({
+      status,
+      approvedAt: status === "approved" ? new Date() : null,
+      updatedAt: new Date(),
+    })
     .where(eq(flagshipWords.id, id));
 }
 
