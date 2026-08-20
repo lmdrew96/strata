@@ -715,6 +715,16 @@ export async function approveFlagshipWord(id: number): Promise<void> {
     .update(flagshipWords)
     .set({ status: "approved", approvedAt: new Date(), updatedAt: new Date() })
     .where(eq(flagshipWords.id, id));
+
+  // Approval is the human sign-off -- the verification/tiering flags on this
+  // word's eras have done their job (flagging what needed review) and now
+  // read as stale noise. quoteSourceUrl (provenance), humanEdited, and
+  // pendingRevision are untouched -- they're orthogonal to verification/tier
+  // (ChaosPatch e13ad379).
+  await db
+    .update(flagshipEras)
+    .set({ needsVerification: false, verificationNote: null, sourcingTier: null })
+    .where(eq(flagshipEras.flagshipWordId, id));
 }
 
 export async function rejectFlagshipWord(id: number): Promise<void> {
