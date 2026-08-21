@@ -4,6 +4,7 @@ import { db } from "../db";
 import { type ToolUsage, createAndParse } from "./anthropic-resume";
 import { ERA_DATES, ERA_LABELS } from "./eras";
 import { buildGroundingPromptContext, getKaikkiGrounding } from "./kaikki-grounding";
+import { fetchMwEtymology } from "./mw-etymology";
 import { extractGlossFromTranslation, shortenKaikkiGloss } from "./quote-translation";
 import { findLocalEvidence } from "./sourcing-tier";
 import {
@@ -468,6 +469,15 @@ export async function generateFlagshipDraft(
   // ingested kaikki row at all; generation falls back to pure model recall.
   const grounding = await getKaikkiGrounding(headword);
 
+  // M-W etymology reference (ChaosPatch 24160af2) -- word-level, cached once
+  // per headword and never re-fetched on regeneration. Best-effort: a
+  // transient failure (no key, rate limit, API down) returns null and is
+  // simply skipped, never blocking or slowing down core generation.
+  const mwResult = existingWord?.mwEtymologyFetchedAt ? null : await fetchMwEtymology(headword);
+  const mwFields = mwResult
+    ? { mwEtymologyText: mwResult.text, mwEtymologyFetchedAt: new Date() }
+    : {};
+
   const phase1System = `You are researching the word "${headword}" for Strata, a deep-dive English etymology explorer. Strata's content is browsable metadata, not prose essays — every field should be scannable at a glance, not a paragraph explaining itself.
 
 This is a first pass using only your own linguistic knowledge — no search or lookup tools are available here, and you should not attempt to cite or quote a specific source. For each of four historical stages of English — Old English (~900), Middle English (~1400), Early Modern English (~1600), and Modern English (today) — provide your best-informed judgment of:
@@ -643,6 +653,7 @@ Attested quotes, citations, and confidence flags are sourced separately in a lat
       headword,
       status: "draft",
       driftType: phase1.drift_type,
+      ...mwFields,
     })
     .onConflictDoUpdate({
       target: flagshipWords.headword,
@@ -650,6 +661,7 @@ Attested quotes, citations, and confidence flags are sourced separately in a lat
         status: "draft",
         driftType: phase1.drift_type,
         updatedAt: new Date(),
+        ...mwFields,
       },
     })
     .returning();

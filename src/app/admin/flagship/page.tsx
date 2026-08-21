@@ -60,6 +60,7 @@ type FlagshipWord = {
   headword: string;
   status: "pending" | "draft" | "approved" | "rejected";
   driftType: DriftType | null;
+  mwEtymologyText: string | null;
   eras: FlagshipEra[];
   siblings: FlagshipSibling[];
 };
@@ -959,6 +960,17 @@ function WordCard({
                   </p>
                 )}
               </>
+            )}
+
+            {/* M-W etymology reference (ChaosPatch 24160af2) -- a read-only
+                lineage-plausibility cross-check next to the two eras where
+                Nae actually does that sense-check reading. Word-level, not
+                era-level (M-W describes the word's overall origin, not one
+                historical form), so it's the same blurb on both cards. */}
+            {!editing && word.mwEtymologyText && (era.era === "old_english" || era.era === "middle_english") && (
+              <p className="font-data mt-2 border-t border-strata-parchment/10 pt-2 text-xs text-strata-parchment/40 italic">
+                M-W: {word.mwEtymologyText}
+              </p>
             )}
           </div>
         ))}
