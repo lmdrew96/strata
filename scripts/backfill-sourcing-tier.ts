@@ -42,6 +42,7 @@ type Row = {
   quoteCitation: string | null;
   quoteTranslation: string | null;
   gloss: string | null;
+  definitions: string[];
   needsVerification: boolean;
   verificationNote: string | null;
   humanEdited: boolean;
@@ -56,6 +57,7 @@ function toResponse(row: Row): EraDraftResponse {
     quote_citation: row.quoteCitation ?? "",
     quote_translation: row.quoteTranslation ?? "",
     gloss: "", // gloss is never touched by processEraDraft's tier logic
+    definitions: [], // definitions is never touched by processEraDraft's tier logic either
     needs_verification: row.needsVerification,
     verification_note: row.verificationNote ?? "",
   };
@@ -76,6 +78,7 @@ async function main() {
       quoteCitation: flagshipEras.quoteCitation,
       quoteTranslation: flagshipEras.quoteTranslation,
       gloss: flagshipEras.gloss,
+      definitions: flagshipEras.definitions,
       needsVerification: flagshipEras.needsVerification,
       verificationNote: flagshipEras.verificationNote,
       humanEdited: flagshipEras.humanEdited,
@@ -131,6 +134,9 @@ async function main() {
           quoteTranslation: draft.quoteTranslation,
           quoteSourceUrl: draft.quoteSourceUrl,
           gloss: row.gloss,
+          // Same reasoning as gloss above -- definitions isn't touched by
+          // processEraDraft's tier logic either.
+          definitions: row.definitions,
           sourcingTier: draft.sourcingTier,
           needsVerification: draft.needsVerification,
           verificationNote: draft.verificationNote,

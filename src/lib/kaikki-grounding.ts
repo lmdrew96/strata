@@ -26,6 +26,11 @@ export type KaikkiGrounding = {
   isUnambiguous: boolean;
   modernIpa: string | null;
   modernGloss: string | null;
+  // Full sense inventory (ChaosPatch 01ccd246), not collapsed to modernGloss's
+  // single Strata-house-style phrase -- one entry per kaikki sense, each its
+  // own real dictionary-style definition string. Empty when unambiguous but
+  // no sense carries a usable gloss.
+  modernDefinitions: string[];
   // Deduped across all homograph rows -- ancestry doesn't depend on sense.
   etymologyRelations: EtymologyRelation[];
   siblingCandidates: SiblingCandidate[];
@@ -94,6 +99,7 @@ export async function getKaikkiGrounding(headword: string): Promise<KaikkiGround
 
   let modernIpa: string | null = null;
   let modernGloss: string | null = null;
+  let modernDefinitions: string[] = [];
   if (isUnambiguous) {
     const [row] = rows;
     const sounds = row.sounds as { ipa?: string; enpr?: string; tags?: string[] }[];
@@ -101,6 +107,7 @@ export async function getKaikkiGrounding(headword: string): Promise<KaikkiGround
 
     const senses = row.senses as { glosses: string[] }[];
     modernGloss = senses.find((s) => s.glosses?.length > 0)?.glosses[0] ?? null;
+    modernDefinitions = senses.map((s) => s.glosses?.[0]).filter((g): g is string => Boolean(g));
   }
 
   const relMap = new Map<string, EtymologyRelation>();
@@ -115,7 +122,15 @@ export async function getKaikkiGrounding(headword: string): Promise<KaikkiGround
 
   const siblingCandidates = await findSiblingCandidates(headword, etymologyRelations);
 
-  return { rowCount: rows.length, isUnambiguous, modernIpa, modernGloss, etymologyRelations, siblingCandidates };
+  return {
+    rowCount: rows.length,
+    isUnambiguous,
+    modernIpa,
+    modernGloss,
+    modernDefinitions,
+    etymologyRelations,
+    siblingCandidates,
+  };
 }
 
 /**
@@ -129,7 +144,7 @@ export function buildGroundingPromptContext(grounding: KaikkiGrounding | null, h
 
   if (grounding.isUnambiguous && (grounding.modernIpa || grounding.modernGloss)) {
     parts.push(
-      `This headword has exactly one local dictionary (kaikki/Wiktionary) entry, so its modern-day IPA/gloss are already known from real local data and will be filled in from that instead of your answer -- don't spend effort perfecting those two fields for the modern era, just make sure your drift_type and sibling_words judgments are consistent with the word's actual modern sense.`,
+      `This headword has exactly one local dictionary (kaikki/Wiktionary) entry, so its modern-day IPA/gloss/definitions are already known from real local data and will be filled in from that instead of your answer -- don't spend effort perfecting those fields for the modern era, just make sure your drift_type and sibling_words judgments are consistent with the word's actual modern sense.`,
     );
   }
 

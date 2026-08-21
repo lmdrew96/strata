@@ -149,6 +149,7 @@ export type PendingEraRevision = {
   quoteTranslation: string | null;
   quoteSourceUrl: string | null;
   gloss: string | null;
+  definitions: string[];
   sourcingTier: SourcingTier;
   needsVerification: boolean;
   verificationNote: string | null;
@@ -250,6 +251,13 @@ export const flagshipWords = pgTable("flagship_words", {
   headword: text("headword").notNull().unique(),
   status: flagshipStatusEnum("status").notNull().default("pending"),
   driftType: driftTypeEnum("drift_type"),
+  // Merriam-Webster Collegiate Dictionary's prose etymology summary, cached
+  // per headword (not per era -- M-W describes the word's overall origin
+  // story, not a specific historical form). A read-only lineage-plausibility
+  // reference surfaced next to the OE/ME era cards in the admin UI, never a
+  // quote source, automated gate, or model input (ChaosPatch 24160af2).
+  mwEtymologyText: text("mw_etymology_text"),
+  mwEtymologyFetchedAt: timestamp("mw_etymology_fetched_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
   approvedAt: timestamp("approved_at"),
@@ -297,6 +305,17 @@ export const flagshipEras = pgTable(
     // "blessed -> innocent -> foolish". See flagship.ts for the full
     // length/style contract given to the model.
     gloss: text("gloss"),
+    // Fuller OED-style set of distinct senses, separate from gloss's 2-4 word
+    // scannable phrase -- each entry reads as a real one-sentence definition
+    // (e.g. "someone or something located adjacent to another, even
+    // temporarily"), not a short phrase. Sourcing differs sharply by era:
+    // modern is populated from real kaikki/Wiktionary senses (words.senses),
+    // zero model cost; OE/ME/EME are the model's own judgment call during
+    // phase-1 generation, same epistemic status as gloss/drift_type -- NOT
+    // independently verified the way quote/quote_citation are. That
+    // distinction is derivable from `era` alone (modern => sourced, else =>
+    // judgment) rather than a redundant new boolean (ChaosPatch 01ccd246).
+    definitions: jsonb("definitions").notNull().default([]).$type<string[]>(),
     // Claude's own flag that a quote/citation should be checked against a
     // real source before publishing — the human-review half of the pipeline.
     needsVerification: boolean("needs_verification").notNull().default(true),

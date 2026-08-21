@@ -89,6 +89,12 @@ const ERA_ITEM_SCHEMA = {
       description:
         "The single core sense of the word at this era, in 2-4 words (e.g. \"blessed\", \"innocent, pitiable\", \"mounted warrior\"). Not a list of every near-synonym, not a sentence. This gloss gets joined era-to-era into a scannable chain like \"blessed -> innocent -> foolish\", so it must stay that short and pick the one essential meaning.",
     },
+    definitions: {
+      type: "array",
+      items: { type: "string" },
+      description:
+        "Distinct real senses the word carried at this era, each written as one full sentence (e.g. \"a person living nearby\", not \"nearby person\"). Separate from gloss -- this is the fuller, dictionary-style entry, not the short drift-chain phrase. Favor fewer high-confidence senses over an exhaustive or padded list; leave empty only if you're not confident of any distinct sense.",
+    },
     needs_verification: {
       type: "boolean",
       description:
@@ -108,6 +114,7 @@ const ERA_ITEM_SCHEMA = {
     "quote_citation",
     "quote_translation",
     "gloss",
+    "definitions",
     "needs_verification",
     "verification_note",
   ],
@@ -167,8 +174,14 @@ const PHASE1_ERA_ITEM_SCHEMA = {
       description:
         "The single core sense of the word at this era, in 2-4 words (e.g. \"blessed\", \"innocent, pitiable\", \"mounted warrior\"). Not a list of every near-synonym, not a sentence. This gloss gets joined era-to-era into a scannable chain like \"blessed -> innocent -> foolish\", so it must stay that short and pick the one essential meaning.",
     },
+    definitions: {
+      type: "array",
+      items: { type: "string" },
+      description:
+        "Distinct real senses the word carried at this era, each written as one full sentence (e.g. \"a person living nearby\", not \"nearby person\"). Separate from gloss -- this is the fuller, dictionary-style entry, not the short drift-chain phrase. A specific attested quote for this era may be matched afterward from local corpora, independently of this list -- keep these senses broad enough to remain accurate whichever specific usage that turns out to be, rather than narrowly describing one imagined citation. Favor fewer high-confidence senses over an exhaustive or padded list; leave empty only if you're not confident of any distinct sense.",
+    },
   },
-  required: ["era", "form", "ipa", "gloss"],
+  required: ["era", "form", "ipa", "gloss", "definitions"],
   additionalProperties: false,
 } as const;
 
@@ -196,6 +209,7 @@ type Phase1EraItem = {
   form: string;
   ipa: string;
   gloss: string;
+  definitions: string[];
 };
 
 type Phase1Response = {
@@ -218,6 +232,7 @@ function toEraDraftResponse(e: Phase1EraItem): EraDraftResponse {
     quote_citation: "",
     quote_translation: "",
     gloss: e.gloss,
+    definitions: e.definitions,
     needs_verification: false,
     verification_note: "",
   };
@@ -235,6 +250,7 @@ export type EraDraftResponse = {
   quote_citation: string;
   quote_translation: string;
   gloss: string;
+  definitions: string[];
   needs_verification: boolean;
   verification_note: string;
 };
@@ -248,6 +264,7 @@ export type EraDraft = {
   quoteTranslation: string | null;
   quoteSourceUrl: string | null;
   gloss: string;
+  definitions: string[];
   sourcingTier: SourcingTier;
   needsVerification: boolean;
   verificationNote: string | null;
@@ -389,6 +406,7 @@ export async function processEraDraft(era: Era, e: EraDraftResponse, headword: s
     quoteTranslation,
     quoteSourceUrl,
     gloss: e.gloss,
+    definitions: e.definitions,
     sourcingTier: tier,
     needsVerification,
     verificationNote,
@@ -456,6 +474,7 @@ This is a first pass using only your own linguistic knowledge — no search or l
 - The word's attested or reconstructed form (spelling) at that stage. This is used as a search key against Strata's own local historical corpora afterward, not treated as a final citation-backed answer.
 - Reconstructed or attested IPA pronunciation, as bare phonemes with no enclosing slashes or brackets (e.g. "kniçt", not "/kniçt/").
 - The single core sense of the word at that stage, in 2-4 words (e.g. "blessed", "mounted warrior") — not a sentence, not a list of every near-synonym. These glosses get joined era-to-era into a scannable chain like "blessed -> innocent -> foolish", so precision and brevity both matter: pick the one essential meaning, not an elaboration of it.
+- definitions: distinct real senses the word carried at that stage, each written as one full sentence (e.g. "a person living nearby", not "nearby person") — the fuller, dictionary-style entry, separate from the short gloss phrase above. A specific attested quote for this stage may be matched afterward from local corpora, independently of this list — keep these senses broad enough to stay accurate whichever specific usage that turns out to be. Favor fewer high-confidence senses over an exhaustive or padded list; leave empty only if you're not confident of any distinct sense.
 
 Only include a stage if the word (or a clear ancestor form) is genuinely attested or well-reconstructed at that stage — if Old English has no attested ancestor, you may omit it, but Modern and at least two earlier stages should normally be present for a flagship word.
 
@@ -463,7 +482,7 @@ Then classify the overall semantic drift with a single drift_type tag.
 
 Finally, name up to 3 sibling_words: other real English words that share a documented root with this word (genuine cognates or common descendants of the same Latin/Greek/PIE ancestor — not just words with a similar meaning). Only include connections you're genuinely confident are documented; leave the list empty rather than force a weak or speculative match.
 
-Attested quotes, citations, and confidence flags are sourced separately in a later pass — don't invent any of those here, just form/ipa/gloss/drift_type/siblings.${buildGroundingPromptContext(grounding, headword)}`;
+Attested quotes, citations, and confidence flags are sourced separately in a later pass — don't invent any of those here, just form/ipa/gloss/definitions/drift_type/siblings.${buildGroundingPromptContext(grounding, headword)}`;
 
   const phase1 = await createAndParse<Phase1Response>(
     anthropic,
@@ -520,6 +539,7 @@ Attested quotes, citations, and confidence flags are sourced separately in a lat
   // is THE modern sense" isn't decidable there).
   let modernIpaSource: "local" | "model" = "model";
   let modernGlossSource: "local" | "model" = "model";
+  let modernDefinitionsSource: "local" | "model" = "model";
   if (grounding?.isUnambiguous && (grounding.modernIpa || grounding.modernGloss)) {
     const localModernIpa = grounding.modernIpa;
     // kaikki's raw gloss is a full dictionary definition, not Strata's 2-4
@@ -533,6 +553,10 @@ Attested quotes, citations, and confidence flags are sourced separately in a lat
         console.error(`[flagship] "${headword}" modern gloss shortening failed, keeping phase-1 gloss:`, err);
       }
     }
+    // Unlike gloss, definitions keeps kaikki's full per-sense strings as-is --
+    // that's the whole point of this field (ChaosPatch 01ccd246), no
+    // condensing needed.
+    const localModernDefinitions = grounding.modernDefinitions;
 
     const modernIdx = phase1.eras.findIndex((e) => e.era === "modern");
     if (modernIdx >= 0) {
@@ -544,22 +568,28 @@ Attested quotes, citations, and confidence flags are sourced separately in a lat
         phase1.eras[modernIdx].gloss = localModernGloss;
         modernGlossSource = "local";
       }
-    } else if (localModernIpa || localModernGloss) {
+      if (localModernDefinitions.length > 0) {
+        phase1.eras[modernIdx].definitions = localModernDefinitions;
+        modernDefinitionsSource = "local";
+      }
+    } else if (localModernIpa || localModernGloss || localModernDefinitions.length > 0) {
       phase1.eras.push({
         era: "modern",
         form: headword,
         ipa: localModernIpa ?? "",
         gloss: localModernGloss ?? "",
+        definitions: localModernDefinitions,
       });
       if (localModernIpa) modernIpaSource = "local";
       if (localModernGloss) modernGlossSource = "local";
+      if (localModernDefinitions.length > 0) modernDefinitionsSource = "local";
     }
   }
 
   console.log(
     `[flagship] "${headword}" kaikki grounding: ${
       grounding ? `${grounding.rowCount} row(s), unambiguous=${grounding.isUnambiguous}` : "no local kaikki entry"
-    }. Modern IPA: ${modernIpaSource}. Modern gloss: ${modernGlossSource}. Sibling candidates from local cross-ref: ${grounding?.siblingCandidates.length ?? 0}.`,
+    }. Modern IPA: ${modernIpaSource}. Modern gloss: ${modernGlossSource}. Modern definitions: ${modernDefinitionsSource}. Sibling candidates from local cross-ref: ${grounding?.siblingCandidates.length ?? 0}.`,
   );
 
   // Phase 2: resolve each era's quote either from local evidence (free) or a
@@ -646,6 +676,7 @@ Attested quotes, citations, and confidence flags are sourced separately in a lat
         quoteTranslation: draft.quoteTranslation,
         quoteSourceUrl: draft.quoteSourceUrl,
         gloss: draft.gloss,
+        definitions: draft.definitions,
         sourcingTier: draft.sourcingTier,
         needsVerification: draft.needsVerification,
         verificationNote: draft.verificationNote,
@@ -732,7 +763,7 @@ export async function regenerateFlagshipEra(
   headword: string,
   era: Era,
   signal?: AbortSignal,
-  existing?: { form: string; ipa: string | null; gloss: string | null },
+  existing?: { form: string; ipa: string | null; gloss: string | null; definitions?: string[] | null },
 ): Promise<EraDraft> {
   if (era === "modern") {
     const grounding = await getKaikkiGrounding(headword);
@@ -758,6 +789,10 @@ export async function regenerateFlagshipEra(
             quote_citation: "",
             quote_translation: "",
             gloss,
+            // This bypass only refreshes IPA/gloss from local kaikki data, not
+            // definitions -- carry the era's existing list forward unchanged
+            // rather than silently wiping it.
+            definitions: existing?.definitions ?? [],
             needs_verification: false,
             verification_note: "",
           },
@@ -788,6 +823,9 @@ export async function regenerateFlagshipEra(
           quote_citation: "",
           quote_translation: "",
           gloss,
+          // Same reasoning as the modern bypass above -- local evidence only
+          // refreshes the quote/gloss, not definitions.
+          definitions: existing?.definitions ?? [],
           needs_verification: false,
           verification_note: "",
         },
@@ -817,7 +855,9 @@ ${
 
 The form field and the quote must never disagree. When there's a quote, the form you give must be the exact spelling used in that quote — not a separately-chosen "typical" spelling. Pick the quote first, then read the form off of it.
 
-The single core sense of the word at this stage, in 2-4 words (e.g. "blessed", "mounted warrior") — not a sentence, not a list of every near-synonym. This gloss gets joined with the word's other eras into a scannable chain like "blessed -> innocent -> foolish" elsewhere in the app, so precision and brevity both matter: pick the one essential meaning, not an elaboration of it.${researchProtocol}
+The single core sense of the word at this stage, in 2-4 words (e.g. "blessed", "mounted warrior") — not a sentence, not a list of every near-synonym. This gloss gets joined with the word's other eras into a scannable chain like "blessed -> innocent -> foolish" elsewhere in the app, so precision and brevity both matter: pick the one essential meaning, not an elaboration of it.
+
+definitions: distinct real senses the word carried at this stage, each written as one full sentence (e.g. "a person living nearby", not "nearby person") — the fuller, dictionary-style entry, separate from the short gloss above. Favor fewer high-confidence senses over an exhaustive or padded list; leave empty only if you're not confident of any distinct sense.${researchProtocol}
 
 Be honest about your confidence: set needs_verification to true for any quote or citation you are not highly confident is accurate, INCLUDING when you checked the corpus and general search and still couldn't confirm it — a human researcher will check it before publication. Never fabricate a citation to appear more authoritative; an honest needs_verification flag is more useful than false confidence. Whenever needs_verification is true, fill verification_note with a one-sentence explanation of the specific doubt (e.g. "citation date is approximate", "recalling this quote from memory, not verified against a primary source", "searched but couldn't find this quote in an indexed source", or "found on [corpus] via search but the page wouldn't fetch (403/paywalled)") — the reviewer relies on this to know what to actually check, so name the doubt, not a generic disclaimer.`;
 
@@ -924,6 +964,7 @@ export async function acceptEraRevision(eraId: number): Promise<void> {
       quoteTranslation: revision.quoteTranslation,
       quoteSourceUrl: revision.quoteSourceUrl,
       gloss: revision.gloss,
+      definitions: revision.definitions,
       sourcingTier: revision.sourcingTier,
       needsVerification: revision.needsVerification,
       verificationNote: revision.verificationNote,

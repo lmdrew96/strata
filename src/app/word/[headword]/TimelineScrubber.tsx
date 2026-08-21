@@ -157,6 +157,32 @@ export function TimelineScrubber({ headword, driftType, eras, siblings }: Props)
         )}
       </div>
 
+      {/* Definitions -- the fuller, OED-style sense list, separate from the
+          short drift-chain gloss above. Modern era draws on real kaikki/
+          Wiktionary senses; OE/ME/EME are the model's own judgment call, so
+          they're captioned rather than presented with the same confidence
+          (see schema.ts's flagshipEras.definitions doc comment). */}
+      {active.definitions.length > 0 && (
+        <div className="mt-6 w-full rounded-lg bg-strata-rosewood/30 p-6 backdrop-blur-sm">
+          <p className="font-data text-xs tracking-[0.2em] text-strata-parchment/50 uppercase">
+            Definitions
+          </p>
+          <ul className="font-data mt-3 space-y-2 text-sm text-strata-parchment/80">
+            {active.definitions.map((d, i) => (
+              <li key={i} className="flex gap-2">
+                <span className="text-strata-parchment/40">{i + 1}.</span>
+                <span>{d}</span>
+              </li>
+            ))}
+          </ul>
+          {active.era !== "modern" && (
+            <p className="font-data mt-3 text-xs text-strata-parchment/40 italic">
+              Proposed senses for this era — not independently sourced the way the quote above is.
+            </p>
+          )}
+        </div>
+      )}
+
       {/* Siblings — words that share a root with this one (the spec's
           "radiate" view: branches off a shared ancestor point). Curated by
           Claude during generation rather than mechanically inferred — see

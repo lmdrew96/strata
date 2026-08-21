@@ -38,7 +38,12 @@ export async function POST(
   // the correct fallback, and regenerateFlagshipEra handles it the same way
   // it always has (straight to live research).
   const [existingRow] = await db
-    .select({ form: flagshipEras.form, ipa: flagshipEras.ipa, gloss: flagshipEras.gloss })
+    .select({
+      form: flagshipEras.form,
+      ipa: flagshipEras.ipa,
+      gloss: flagshipEras.gloss,
+      definitions: flagshipEras.definitions,
+    })
     .from(flagshipEras)
     .where(and(eq(flagshipEras.flagshipWordId, wordId), eq(flagshipEras.era, era)));
 

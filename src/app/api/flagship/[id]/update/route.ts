@@ -13,6 +13,7 @@ type EraPayload = {
   quoteTranslation: string | null;
   quoteSourceUrl: string | null;
   gloss: string | null;
+  definitions: string[];
   sourcingTier: SourcingTier | null;
   needsVerification: boolean;
   verificationNote: string | null;
@@ -65,6 +66,7 @@ export async function POST(
         quoteTranslation: era.quoteTranslation || null,
         quoteSourceUrl: era.quoteSourceUrl || null,
         gloss: era.gloss || null,
+        definitions: era.definitions,
         sourcingTier: era.sourcingTier,
         needsVerification: era.needsVerification,
         verificationNote: era.needsVerification ? era.verificationNote || null : null,
@@ -95,6 +97,7 @@ export async function POST(
         quoteTranslation: era.quoteTranslation || null,
         quoteSourceUrl: era.quoteSourceUrl || null,
         gloss: era.gloss || null,
+        definitions: era.definitions,
         sourcingTier: era.sourcingTier,
         needsVerification: era.needsVerification,
         verificationNote: era.needsVerification ? era.verificationNote || null : null,

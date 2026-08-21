@@ -21,6 +21,7 @@ type PendingEraRevision = {
   quoteTranslation: string | null;
   quoteSourceUrl: string | null;
   gloss: string | null;
+  definitions: string[];
   sourcingTier: SourcingTier;
   needsVerification: boolean;
   verificationNote: string | null;
@@ -37,6 +38,7 @@ type FlagshipEra = {
   quoteTranslation: string | null;
   quoteSourceUrl: string | null;
   gloss: string | null;
+  definitions: string[];
   sourcingTier: SourcingTier | null;
   needsVerification: boolean;
   verificationNote: string | null;
@@ -515,6 +517,7 @@ function WordCard({
       quoteTranslation: "",
       quoteSourceUrl: "",
       gloss: "",
+      definitions: [],
       // Amber: a manually added era is Nae's own assertion, not corpus-
       // confirmed -- same status a model-asserted-but-unconfirmed era gets.
       sourcingTier: "amber",
@@ -856,6 +859,17 @@ function WordCard({
                   className="w-full rounded border border-strata-parchment/20 bg-strata-rosewood/20 px-1.5 py-1 text-sm text-strata-parchment"
                 />
                 <textarea
+                  value={era.definitions.join("\n")}
+                  onChange={(e) =>
+                    updateEra(era.id, {
+                      definitions: e.target.value.split("\n").filter((d) => d.trim().length > 0),
+                    })
+                  }
+                  placeholder="definitions (one full-sentence sense per line)"
+                  rows={2}
+                  className="w-full rounded border border-strata-parchment/20 bg-strata-rosewood/20 px-1.5 py-1 text-xs text-strata-parchment"
+                />
+                <textarea
                   value={era.quote ?? ""}
                   onChange={(e) => updateEra(era.id, { quote: e.target.value })}
                   placeholder="quote"
@@ -904,6 +918,14 @@ function WordCard({
 
                 {era.gloss && (
                   <p className="font-data mt-1 text-sm text-strata-parchment/70">{era.gloss}</p>
+                )}
+
+                {era.definitions.length > 0 && (
+                  <ul className="font-data mt-1 list-disc space-y-0.5 pl-4 text-xs text-strata-parchment/60">
+                    {era.definitions.map((d, i) => (
+                      <li key={i}>{d}</li>
+                    ))}
+                  </ul>
                 )}
 
                 {era.quote && (
