@@ -73,7 +73,7 @@ const ERA_ITEM_SCHEMA = {
     quote: {
       type: "string",
       description:
-        "A real attested quote using this word at this era, in its original spelling. For the modern era, leave this as an empty string unless there is a genuinely specific, real, well-known citation worth including — never invent an illustrative example sentence and present it as a quote.",
+        "A real attested quote using this word at this era, in its original spelling. Keep it short — roughly 20 words or fewer, just enough to show the word in context. If the source sentence runs longer, trim it to the clause containing the word rather than quoting the whole sentence. For the modern era, leave this as an empty string unless there is a genuinely specific, real, well-known citation worth including — never invent an illustrative example sentence and present it as a quote.",
     },
     quote_citation: {
       type: "string",

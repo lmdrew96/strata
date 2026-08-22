@@ -36,6 +36,24 @@ function stripMwMarkup(text: string): string {
     .replace(/,\s*$/, "");
 }
 
+// M-W's full etymology entry is a scholarly essay -- immediate origin
+// followed by a full Indo-European root reconstruction with cognates
+// (Sanskrit, Greek, Welsh, Germanic...). This is a lineage-plausibility
+// REFERENCE (see file header), not something Nae reads end to end, so cap
+// it to roughly the immediate-origin clause and drop the deep root chain --
+// same "browsable metadata, not prose essays" rule the rest of Strata
+// follows. No sentence-boundary logic: M-W's own punctuation here is
+// unpredictable (semicolons and parens do most of the clause-separating
+// work, periods often don't appear until the very end), so a plain word cap
+// is more reliable than trying to detect a "natural" break.
+export const MAX_ETYMOLOGY_WORDS = 40;
+
+export function capEtymologyLength(text: string, maxWords = MAX_ETYMOLOGY_WORDS): string {
+  const words = text.split(/\s+/);
+  if (words.length <= maxWords) return text;
+  return `${words.slice(0, maxWords).join(" ")}…`;
+}
+
 function extractEtymologyText(entry: MwDictionaryEntry): string | null {
   if (!entry.et || entry.et.length === 0) return null;
   const parts = entry.et
@@ -43,7 +61,7 @@ function extractEtymologyText(entry: MwDictionaryEntry): string | null {
     .map(([, text]) => stripMwMarkup(text))
     .filter((text) => text.length > 0);
   const joined = parts.join(" ").trim();
-  return joined.length > 0 ? joined : null;
+  return joined.length > 0 ? capEtymologyLength(joined) : null;
 }
 
 // null = transient failure (no key configured, request/parse error, non-OK

@@ -12,14 +12,22 @@
 // title when there's a named author, otherwise the passage's own locator,
 // so an anonymous/scriptural citation still points at a specific passage
 // instead of repeating the title twice.
+// `locator` is meant to be a terse in-document marker like "CAP. XVI:8" or a
+// Nerthus sent_id -- a handful of CMEPV texts use full prose sentences as
+// chapter headings instead, which would otherwise splice a whole sentence
+// into the citation. Anything this long isn't a locator, so drop it.
+const MAX_LOCATOR_LEN = 40;
+
 export function formatCorpusCitation(source: {
   textTitle: string;
   textAuthor: string | null;
   textDate: string | null;
   locator: string | null;
 }): string {
+  const locator =
+    source.locator && source.locator.length <= MAX_LOCATOR_LEN ? source.locator : null;
   const attribution = source.textAuthor || source.textTitle;
-  const specific = source.textAuthor ? source.textTitle : source.locator;
+  const specific = source.textAuthor ? source.textTitle : locator;
   const parts = [
     attribution,
     specific && specific !== attribution ? specific : null,

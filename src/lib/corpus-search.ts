@@ -12,13 +12,36 @@ export function escapeRegex(s: string): string {
 }
 
 const CONTEXT_PAD = 200;
-const MAX_LEN = 300;
+// Quotes exist to put the word in context, not to reproduce the source
+// passage -- cap at this many words on each side of the match (~20 words
+// total including the match itself).
+export const WORD_PAD = 9;
+
+function stripPunct(word: string): string {
+  return word.replace(/^[^\w]+|[^\w]+$/g, "");
+}
+
+// Trims a snippet down to a window of whole words centered on `form`,
+// so long corpus sentences don't get quoted in full. Exported for callers
+// (kaikki example sentences) that don't go through extractSnippet's own
+// sentence-bounding but still need the same word cap.
+export function capToWordWindow(snippet: string, form: string, wordPad: number): string {
+  const words = snippet.split(/\s+/);
+  const re = new RegExp(`^${escapeRegex(form)}$`, "i");
+  const matchIdx = words.findIndex((w) => re.test(stripPunct(w)));
+  const center = matchIdx === -1 ? 0 : matchIdx;
+
+  const start = Math.max(0, center - wordPad);
+  const end = Math.min(words.length, center + wordPad + 1);
+  const windowed = words.slice(start, end);
+
+  return `${start > 0 ? "…" : ""}${windowed.join(" ")}${end < words.length ? "…" : ""}`;
+}
 
 // Extracts a short, sentence-bounded snippet around the first case-
-// insensitive whole-word match of `form` in `text`. Falls back to a hard
-// character cap (centered on the match, with ellipses) for texts with no
-// nearby sentence punctuation -- some corpus passages run long with sparse
-// punctuation.
+// insensitive whole-word match of `form` in `text`, then trims that down to
+// a ~20-word window centered on the match -- enough to show the word in
+// context, not the whole sentence/passage.
 export function extractSnippet(text: string, form: string): string | null {
   const re = new RegExp(`\\b${escapeRegex(form)}\\b`, "i");
   const match = re.exec(text);
@@ -36,21 +59,13 @@ export function extractSnippet(text: string, form: string): string | null {
   while (e < fwdStop && !/[.!?]/.test(text[e])) e++;
   if (e < text.length && /[.!?]/.test(text[e])) e++;
 
-  let snippet = text
+  const snippet = text
     .slice(s, e)
     .replace(/\s+/g, " ")
     .replace(/^[¶\s]+/, "")
     .trim();
 
-  if (snippet.length > MAX_LEN) {
-    const relMatch = matchIndex - s;
-    const half = Math.floor(MAX_LEN / 2);
-    const cs = Math.max(0, relMatch - half);
-    const ce = Math.min(snippet.length, cs + MAX_LEN);
-    snippet = `${cs > 0 ? "…" : ""}${snippet.slice(cs, ce).trim()}${ce < snippet.length ? "…" : ""}`;
-  }
-
-  return snippet;
+  return capToWordWindow(snippet, form, WORD_PAD);
 }
 
 export type CorpusHit = {

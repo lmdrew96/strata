@@ -15,7 +15,13 @@ import { db } from "../db";
 import type { Era } from "../db/schema";
 import { words } from "../db/schema";
 import { formatCorpusCitation, shortenCitation } from "./citation-format";
-import { extractSnippet, findCorpusLemmaMatch, findCorpusSubstringMatch } from "./corpus-search";
+import {
+  WORD_PAD,
+  capToWordWindow,
+  extractSnippet,
+  findCorpusLemmaMatch,
+  findCorpusSubstringMatch,
+} from "./corpus-search";
 
 export type LocalEvidence = {
   quote: string;
@@ -76,7 +82,7 @@ async function findEmeKaikkiEvidence(headword: string): Promise<LocalEvidence | 
   if (!best) return null;
 
   return {
-    quote: best.text,
+    quote: capToWordWindow(best.text, headword, WORD_PAD),
     quoteCitation: shortenCitation(best.ref),
     quoteTranslation: null,
     quoteSourceUrl: `kaikki:${headword}`,
@@ -100,8 +106,9 @@ export async function findLocalEvidence(
   if (era === "old_english") {
     const lemmaHit = await findCorpusLemmaMatch("nerthus", form);
     if (lemmaHit) {
+      const snippet = extractSnippet(lemmaHit.text, form) ?? lemmaHit.text;
       return {
-        quote: lemmaHit.text,
+        quote: snippet,
         quoteCitation: formatCorpusCitation(lemmaHit),
         quoteTranslation: lemmaHit.translation,
         quoteSourceUrl: `corpus:nerthus:${lemmaHit.textId}${lemmaHit.locator ? `:${lemmaHit.locator}` : ""}`,
