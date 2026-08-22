@@ -635,7 +635,14 @@ Attested quotes, citations, and confidence flags are sourced separately in a lat
       eraDrafts.push(await processEraDraft(e.era, toEraDraftResponse({ ...e, gloss }), headword));
     } else {
       fallbackCount++;
-      eraDrafts.push(await regenerateFlagshipEra(headword, e.era, opts?.signal));
+      eraDrafts.push(
+        await regenerateFlagshipEra(headword, e.era, opts?.signal, {
+          form: e.form,
+          ipa: e.ipa,
+          gloss: e.gloss,
+          definitions: e.definitions,
+        }),
+      );
     }
   }
 
@@ -712,6 +719,7 @@ Attested quotes, citations, and confidence flags are sourced separately in a lat
           quoteTranslation: draft.quoteTranslation,
           quoteSourceUrl: draft.quoteSourceUrl,
           gloss: draft.gloss,
+          definitions: draft.definitions,
           sourcingTier: draft.sourcingTier,
           needsVerification: draft.needsVerification,
           verificationNote: draft.verificationNote,
