@@ -139,9 +139,29 @@ export async function findLocalEvidence(
     };
   }
 
-  // early_modern_english: no EEBO-TCP ingestion yet (ChaosPatch 92909bfa is
-  // still open/blocked) -- the only local evidence source is a date-gated
-  // kaikki example, per Nae's note that it's a second legitimate green-tier
-  // source, not just corpus hits.
-  return findEmeKaikkiEvidence(headword);
+  if (era === "early_modern_english") {
+    // EEBO-TCP is a curated subset (~400 texts, ChaosPatch 92909bfa), not
+    // the full 25k-text Phase I corpus -- a substring miss here doesn't mean
+    // the word wasn't printed, only that it's not in the slice ingested.
+    const hit = await findCorpusSubstringMatch("eebo", form);
+    if (hit) {
+      const snippet = extractSnippet(hit.text, form);
+      if (snippet) {
+        return {
+          quote: snippet,
+          quoteCitation: formatCorpusCitation(hit),
+          quoteTranslation: null,
+          quoteSourceUrl: `corpus:eebo:${hit.textId}`,
+          trusted: false,
+        };
+      }
+    }
+
+    // Falls back to the date-gated kaikki example -- a second legitimate
+    // green-tier source (structurally different: an exact dictionary
+    // headword match, not a substring in running text), per Nae's note.
+    return findEmeKaikkiEvidence(headword);
+  }
+
+  return null;
 }

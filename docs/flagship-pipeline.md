@@ -4,13 +4,14 @@ How a flagship word goes from ingested corpora to a draft in the Admin review qu
 
 ## 1. What's actually ingested
 
-Historical text lives in one shared table, `corpus_passages` (`src/db/schema.ts`), keyed by `sourceKey`. Three sources are ingested today:
+Historical text lives in one shared table, `corpus_passages` (`src/db/schema.ts`), keyed by `sourceKey`. Four sources are ingested today:
 
 - **`nerthus`** — OE prose (Nerthus UD treebank: Gospel of Mark, Ælfric homilies, Chronicle A, Orosius, Laws). Rows carry a `lemma` tag, so it's matched exactly, not by spelling.
 - **`oepoetry`** — OE poetry (Andreas etc.), original-spelling text only — no `lemma`, matched by substring.
 - **`cmepv`** — Middle English prose/verse (Corpus of Middle English Prose and Verse), also substring-matched, no lemma tag.
+- **`eebo`** — Early Modern English, a curated ~400-text subset of EEBO-TCP Phase I (`scripts/ingest-eebo.ts`, ChaosPatch 92909bfa), original-spelling TEI, substring-matched. Not the full 25,368-text Phase I corpus — selection is bucketed across the 1473–1700 print period (top texts by page count per 25-year window, capped at 200pp to exclude multi-volume encyclopedic tomes and epic-length verse that blew a first trial run up to 1.29M passages for little added coverage) plus one deliberately-forced inclusion (Holland's 1600 Livy translation, one of the two documented live-fetch failures this ingestion exists to fix). A substring miss here means "not in the ~400-text slice," not "never printed" — real gaps still fall through to the date-gated kaikki match, then to live-fetch.
 
-There's no EEBO-TCP (Early Modern English) ingestion yet — that's still blocked (ChaosPatch 92909bfa). For EME, the only local fallback is the long-tail `words` table (kaikki/Wiktextract data), and only when a citation year in an example's `ref` falls inside 1470–1720 (`src/lib/sourcing-tier.ts`) — a plausibility gate added after a probe found 41% of naive spelling matches were era-wrong.
+For EME, the long-tail `words` table (kaikki/Wiktextract data) is a second local fallback below `eebo`, trusted only when a citation year in an example's `ref` falls inside 1470–1720 (`src/lib/sourcing-tier.ts`) — a plausibility gate added after a probe found 41% of naive spelling matches were era-wrong.
 
 The `words` table also carries `sounds`/`senses`/`etymologyRelations` per headword — real Wiktionary data used to ground generation before any model call happens (see §2).
 
@@ -28,11 +29,11 @@ This is the part that matters, whether an era's `EraDraftResponse` came from the
 
 - OE: Nerthus lemma match first, then oepoetry substring match.
 - ME: cmepv substring match.
-- EME: date-gated kaikki match only.
+- EME: eebo substring match first, then date-gated kaikki match.
 
 If evidence is found, it **overwrites** whatever quote the model proposed — a real corpus hit beats anything the model recalled or fetched. Tier assignment then follows:
 
-- **green** — only the date-gated kaikki match is trusted enough for green. Nerthus lemma hits and cmepv/oepoetry substring hits are real evidence but not proof of the right *sense* (a lemma can tag a proper noun, a substring can hit editorial apparatus) — so those land as **amber**, flagged for a human sense-check.
+- **green** — only the date-gated kaikki match is trusted enough for green. Nerthus lemma hits and cmepv/oepoetry/eebo substring hits are real evidence but not proof of the right *sense* (a lemma can tag a proper noun, a substring can hit an unrelated homograph) — so those land as **amber**, flagged for a human sense-check.
 - **amber** — evidence found-but-untrusted, or the model claims a quote with nothing local backing it, or the word is asserted to exist with no quote at all.
 - **red** — model returned an empty form: no evidence the word existed at this era.
 - **n/a** — modern era, no quote expected.
